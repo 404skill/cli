@@ -6,6 +6,8 @@ require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/joho/godotenv v1.5.1
 	github.com/supabase-community/supabase-go v0.0.4
+	golang.org/x/crypto v0.38.0
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (

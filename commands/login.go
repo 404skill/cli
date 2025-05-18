@@ -6,11 +6,13 @@ import (
     "os"
     "strings"
     "context"
+    "time"
 
     "github.com/joho/godotenv"
     "log"
     "404skill-cli/supabase"
     "404skill-cli/auth"
+    "404skill-cli/config"
 )
 
 func init() {
@@ -47,41 +49,28 @@ func (c *LoginCmd) Execute(args []string) error {
     }
 
     authProvider := auth.NewSupabaseAuth(client)
-    if accessToken, err := authProvider.SignIn(context.Background(), c.Username, c.Password); err != nil {
+
+    accessToken, err := authProvider.SignIn(context.Background(), c.Username, c.Password); 
+    if err != nil {
         fmt.Println("Invalid credentials")
         return nil
     } else {
         fmt.Println("Access Token:", accessToken)
     }
 
-    // call to our backend should go here to generate / get the api key.
-    apiKey := "mock-api-key"
 
-    // Save API key to ~/.404skill/config.yml
-    homeDir, err := os.UserHomeDir()
+    cfg := config.Config{
+        Username:    c.Username,
+        Password:    c.Password,
+        AccessToken: accessToken,
+        LastUpdated: time.Now(),
+    }
+
+    err = config.WriteConfig(cfg)
     if err != nil {
         return err
     }
 
-    // Ensure the directory exists
-    err = os.MkdirAll(fmt.Sprintf("%s/.404skill", homeDir), os.ModePerm)
-    if err != nil {
-        return err
-    }
-
-    configPath := fmt.Sprintf("%s/.404skill/config.yml", homeDir)
-
-    file, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-    if err != nil {
-        return err
-    }
-    defer file.Close()
-
-    _, err = file.WriteString(fmt.Sprintf("api_key: %s\n", apiKey))
-    if err != nil {
-        return err
-    }
-
-    fmt.Println("Login successful, API key saved.")
+    fmt.Println("Login successful, configuration saved.")
     return nil
 } 
