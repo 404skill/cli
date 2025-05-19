@@ -5,42 +5,35 @@ import (
     "404skill-cli/config"
     "net/http"
     "io/ioutil"
+    "os"
+    "encoding/json"
+    "github.com/olekukonko/tablewriter"
 )
+
+// Project represents the metadata of a project
+type Project struct {
+    ID   string `json:"id"`
+    Name string `json:"name"`
+}
 
 // ListCmd handles the `list` command
 type ListCmd struct{}
 
 func (c *ListCmd) Execute(args []string) error {
-    projects := []struct {
-        ID   string
-        Slug string
-    }{
-        {ID: "1", Slug: "project-one"},
-        {ID: "2", Slug: "project-two"},
-        {ID: "3", Slug: "project-three"},
-    }
-
     token, err := config.GetToken()
     if err != nil {
         fmt.Println(err)
         return err
     }
 
-    fmt.Println(token)
+    baseURL := config.GetBaseURL()
 
-    fmt.Println("Available projects:")
-    for _, project := range projects {
-        fmt.Printf("ID: %s, Slug: %s\n", project.ID, project.Slug)
-    }
-
-    // Create a new HTTP request
-    req, err := http.NewRequest("GET", "http://localhost:8080/hello", nil)
+    req, err := http.NewRequest("GET", fmt.Sprintf("%s/hello", baseURL), nil)
     if err != nil {
         fmt.Println("Error creating request:", err)
         return err
     }
 
-    // Set the Authorization header
     req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
     // Send the request
@@ -52,7 +45,6 @@ func (c *ListCmd) Execute(args []string) error {
     }
     defer resp.Body.Close()
 
-    // Read and print the response body
     body, err := ioutil.ReadAll(resp.Body)
     if err != nil {
         fmt.Println("Error reading response:", err)
@@ -60,6 +52,17 @@ func (c *ListCmd) Execute(args []string) error {
     }
 
     fmt.Println("Response from /hello:", string(body))
+
+    var projects []Project
+    if err := json.Unmarshal(body, &projects); err != nil {
+        fmt.Println("Error deserializing response:", err)
+        return err
+    }
+
+    table := tablewriter.NewWriter(os.Stdout)
+    table.Header([]string{"ID", "Name"})
+    table.Bulk(projects)
+    table.Render()
 
     return nil
 } 
