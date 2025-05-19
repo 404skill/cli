@@ -17,6 +17,10 @@ func (m *MockClient) ListProjects(ctx context.Context) ([]api.Project, error) {
     return m.projects, m.err
 }
 
+func (m *MockClient) InitProject(ctx context.Context, projectIdentifier string) (*api.ProjectTemplate, error) {
+    return nil, nil
+}
+
 func TestListCmd_Execute(t *testing.T) {
     // Test cases
     tests := []struct {
