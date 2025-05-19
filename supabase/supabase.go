@@ -2,21 +2,22 @@ package supabase
 
 import (
     "fmt"
-    "os"
+    "github.com/joho/godotenv"
     "github.com/supabase-community/supabase-go"
+    "os"
 )
 
 func NewSupabaseClient() (*supabase.Client, error) {
-    supabaseUrl := os.Getenv("SUPABASE_URL")
+    if err := godotenv.Load(); err != nil {
+        return nil, fmt.Errorf("failed to load environment: %w", err)
+    }
+
+    supabaseURL := os.Getenv("SUPABASE_URL")
     supabaseKey := os.Getenv("SUPABASE_KEY")
-    if supabaseUrl == "" || supabaseKey == "" {
-        return nil, fmt.Errorf("Supabase credentials are not set")
+
+    if supabaseURL == "" || supabaseKey == "" {
+        return nil, fmt.Errorf("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
     }
 
-    client, err := supabase.NewClient(supabaseUrl, supabaseKey, nil)
-    if err != nil {
-        return nil, fmt.Errorf("cannot initialize client: %w", err)
-    }
-
-    return client, nil
+    return supabase.NewClient(supabaseURL, supabaseKey, nil)
 } 

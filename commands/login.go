@@ -8,19 +8,10 @@ import (
     "context"
     "time"
 
-    "github.com/joho/godotenv"
-    "log"
     "404skill-cli/supabase"
     "404skill-cli/auth"
     "404skill-cli/config"
 )
-
-func init() {
-    err := godotenv.Load()
-    if err != nil {
-        log.Fatal("Error loading .env file")
-    }
-}
 
 type LoginCmd struct {
     Username string `short:"u" long:"username" description:"Username for login"`
@@ -50,14 +41,13 @@ func (c *LoginCmd) Execute(args []string) error {
 
     authProvider := auth.NewSupabaseAuth(client)
 
-    accessToken, err := authProvider.SignIn(context.Background(), c.Username, c.Password); 
+    accessToken, err := authProvider.SignIn(context.Background(), c.Username, c.Password)
     if err != nil {
         fmt.Println("Invalid credentials")
         return nil
     } else {
         fmt.Println("Access Token:", accessToken)
     }
-
 
     cfg := config.Config{
         Username:    c.Username,
