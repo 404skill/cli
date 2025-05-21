@@ -32,6 +32,13 @@ type Client struct {
 type Project struct {
     ID   string `json:"id"`
     Name string `json:"name"`
+    Difficulty string `json:"difficulty"`
+    Language string `json:"language"`
+    Description string `json:"description"`
+    RepoUrl string `json:"repo_url"`
+    Type string `json:"type"`
+    EstimatedDurationInMinutes int `json:"estimated_duration_minutes"`
+    AccessTier string `json:"access_tier"`
 }
 
 // ProjectTemplate represents a project template response
@@ -58,7 +65,7 @@ func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
         return nil, fmt.Errorf("failed to get token: %w", err)
     }
 
-    req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/hello", c.baseURL), nil)
+    req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost:8080/projects" , nil)
     if err != nil {
         return nil, fmt.Errorf("failed to create request: %w", err)
     }

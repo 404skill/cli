@@ -56,7 +56,16 @@ func IsTokenExpired(lastUpdated time.Time) bool {
     return time.Since(lastUpdated) >= 1*time.Second
 } 
 
-func GetToken() (string, error) {
+// ConfigTokenProvider implements the TokenProvider interface
+type ConfigTokenProvider struct{}
+
+// NewConfigTokenProvider creates a new ConfigTokenProvider
+func NewConfigTokenProvider() *ConfigTokenProvider {
+    return &ConfigTokenProvider{}
+}
+
+// GetToken implements the TokenProvider interface
+func (p *ConfigTokenProvider) GetToken() (string, error) {
     config, err := ReadConfig()
     if err != nil {
         return "", err
@@ -65,16 +74,13 @@ func GetToken() (string, error) {
     if IsTokenExpired(config.LastUpdated) {
         client, err := supabase.NewSupabaseClient()
         if err != nil {
-            fmt.Println(err)
-            return "", err
+            return "", fmt.Errorf("failed to create supabase client: %w", err)
         }
 
         authProvider := auth.NewSupabaseAuth(client)
-
-        accessToken, err := authProvider.SignIn(context.Background(), config.Username, config.Password); 
+        accessToken, err := authProvider.SignIn(context.Background(), config.Username, config.Password)
         if err != nil {
-            fmt.Println("Invalid credentials")
-            return "", err
+            return "", fmt.Errorf("failed to refresh token: %w", err)
         }
 
         cfg := Config{
@@ -83,11 +89,12 @@ func GetToken() (string, error) {
             AccessToken: accessToken,
             LastUpdated: time.Now(),
         }
-    
-        err = WriteConfig(cfg)
-        if err != nil {
-            return "", err
+
+        if err := WriteConfig(cfg); err != nil {
+            return "", fmt.Errorf("failed to save new token: %w", err)
         }
+
+        return accessToken, nil
     }
 
     return config.AccessToken, nil
