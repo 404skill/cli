@@ -1,0 +1,173 @@
+# Go Best Practices
+
+## Testing
+```go
+// Always mock external dependencies in tests
+type MockAPIClient struct {
+    response interface{}
+    err      error
+}
+
+func (m *MockAPIClient) GetData() (interface{}, error) {
+    return m.response, m.err
+}
+
+// Use interfaces for better testability
+type APIClient interface {
+    GetData() (interface{}, error)
+}
+
+// Test both success and error cases
+func TestMyFunction(t *testing.T) {
+    tests := []struct {
+        name     string
+        mock     APIClient
+        wantErr  bool
+    }{
+        {
+            name: "success case",
+            mock: &MockAPIClient{response: "data"},
+            wantErr: false,
+        },
+        {
+            name: "error case",
+            mock: &MockAPIClient{err: errors.New("api error")},
+            wantErr: true,
+        },
+    }
+    // ... test implementation
+}
+
+// Use httptest for HTTP testing
+func TestHTTPClient(t *testing.T) {
+    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Mock response
+    }))
+    defer server.Close()
+    // ... test implementation
+}
+```
+
+## Separation of Concerns
+```go
+// Modular Design: Organize code into packages with single responsibility
+package user
+
+// Interface Segregation: Define clear contracts
+type UserService interface {
+    GetUser(id string) (*User, error)
+    CreateUser(user *User) error
+}
+
+// Dependency Injection: Manage dependencies between components
+type UserHandler struct {
+    service UserService
+}
+
+func NewUserHandler(service UserService) *UserHandler {
+    return &UserHandler{service: service}
+}
+```
+
+## Extensibility
+```go
+// Open/Closed Principle: Design for extension
+type PaymentProcessor interface {
+    ProcessPayment(amount float64) error
+}
+
+// Configuration Management: Use environment variables
+type Config struct {
+    DatabaseURL string `env:"DATABASE_URL"`
+    APIKey      string `env:"API_KEY"`
+}
+
+// Plugin Architecture: Allow for easy extension
+type Plugin interface {
+    Name() string
+    Execute() error
+}
+```
+
+## Simplicity
+```go
+// Keep It Simple: Write clear and concise code
+func calculateTotal(items []Item) float64 {
+    var total float64
+    for _, item := range items {
+        total += item.Price
+    }
+    return total
+}
+
+// Consistent Naming: Use descriptive names
+type UserRepository interface {
+    FindByID(id string) (*User, error)
+    Save(user *User) error
+}
+
+// Documentation: Document public APIs
+// UserService handles user-related operations
+type UserService interface {
+    // GetUser retrieves a user by their ID
+    GetUser(id string) (*User, error)
+}
+```
+
+## Code Quality
+```go
+// Testing: Write unit tests
+func TestCalculateTotal(t *testing.T) {
+    items := []Item{{Price: 10}, {Price: 20}}
+    total := calculateTotal(items)
+    if total != 30 {
+        t.Errorf("Expected 30, got %f", total)
+    }
+}
+
+// Linting: Use golangci-lint
+// go:generate golangci-lint run
+
+// Code Reviews: Follow review guidelines
+// - Check for error handling
+// - Verify test coverage
+// - Review documentation
+```
+
+## Performance
+```go
+// Profiling: Use pprof for performance analysis
+import _ "net/http/pprof"
+
+// Concurrency: Use goroutines and channels
+func processItems(items []Item) []Result {
+    results := make(chan Result)
+    for _, item := range items {
+        go func(i Item) {
+            results <- processItem(i)
+        }(item)
+    }
+    return collectResults(results)
+}
+```
+
+## Security
+```go
+// Input Validation: Validate all input
+func validateUserInput(input string) error {
+    if len(input) < 3 {
+        return errors.New("input too short")
+    }
+    return nil
+}
+
+// Secure Communication: Use HTTPS
+client := &http.Client{
+    Transport: &http.Transport{
+        TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+    },
+}
+
+// Password Hashing: Use bcrypt
+hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+``` 

@@ -1,0 +1,152 @@
+# 404skill CLI Development Rules
+
+## Project Structure
+```go
+// All commands must be implemented in the commands package
+package commands
+
+// Configuration-related code must be in the config package
+package config
+
+// Authentication logic must be in the auth package
+package auth
+
+// API client code must be in the api package
+package api
+```
+
+## Command Implementation
+```go
+// Each command must implement the Command interface
+type Command interface {
+    Execute(args []string) error
+}
+
+// Commands must be stateless and thread-safe
+type ListCmd struct{}
+
+// Command execution must be idempotent
+func (c *ListCmd) Execute(args []string) error {
+    // Implementation
+}
+```
+
+## Configuration Management
+```go
+// All configuration must be stored in ~/.404skill/config.yml
+const ConfigFilePath = "~/.404skill/config.yml"
+
+// Environment-specific configurations must be managed through environment variables
+func GetBaseURL() string {
+    env := os.Getenv("ENV")
+    if env == "production" {
+        return os.Getenv("BASE_URL_PROD")
+    }
+    return os.Getenv("BASE_URL_DEV")
+}
+```
+
+## API Integration
+```go
+// All API calls must include proper error handling
+func makeAPICall() error {
+    resp, err := client.Do(req)
+    if err != nil {
+        return fmt.Errorf("failed to make API call: %w", err)
+    }
+    defer resp.Body.Close()
+    return nil
+}
+
+// API responses must be validated before use
+type APIResponse struct {
+    Data    interface{} `json:"data"`
+    Success bool       `json:"success"`
+}
+```
+
+## Authentication
+```go
+// JWT tokens must be refreshed automatically when expired
+func refreshToken() error {
+    if isTokenExpired() {
+        return refreshJWT()
+    }
+    return nil
+}
+
+// Password hashing must use bcrypt with appropriate cost factor
+hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+```
+
+## Error Handling
+```go
+// All errors must be wrapped with context
+if err != nil {
+    return fmt.Errorf("failed to execute command: %w", err)
+}
+
+// User-facing errors must be clear and actionable
+fmt.Println("Error: Invalid credentials. Please check your username and password.")
+```
+
+## Testing
+```go
+// Each command must have corresponding unit tests
+func TestListCmd_Execute(t *testing.T) {
+    cmd := &ListCmd{}
+    err := cmd.Execute([]string{})
+    assert.NoError(t, err)
+}
+```
+
+## Documentation
+```go
+// All public APIs must be documented
+// Command represents a CLI command that can be executed
+type Command interface {
+    // Execute runs the command with the given arguments
+    Execute(args []string) error
+}
+```
+
+## Code Style
+```go
+// Follow Go standard formatting
+// Use meaningful variable and function names
+func getUserByID(id string) (*User, error) {
+    // Implementation
+}
+
+// Keep functions small and focused
+func validateInput(input string) error {
+    // Implementation
+}
+```
+
+## Security
+```go
+// No hardcoded credentials
+const (
+    apiKey = os.Getenv("API_KEY")
+)
+
+// Input validation for all user inputs
+func validateUserInput(input string) error {
+    if input == "" {
+        return errors.New("input cannot be empty")
+    }
+    return nil
+}
+```
+
+## Performance
+```go
+// Minimize API calls
+var cache = make(map[string]interface{})
+
+// Use appropriate timeouts for network calls
+client := &http.Client{
+    Timeout: 10 * time.Second,
+}
+``` 
