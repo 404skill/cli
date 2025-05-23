@@ -3,6 +3,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -90,12 +93,17 @@ var (
 \==============================================================================================/
                                                                        `)
 
+	downloadedStyle = lipgloss.NewStyle().
+			Foreground(secondary).
+			Faint(true).
+			Render("✓ Downloaded")
+
 	bubbleTableColumns = []btable.Column{
-		btable.NewColumn("id", "ID", 40),
 		btable.NewColumn("name", "Name", 32),
 		btable.NewColumn("lang", "Language", 15),
 		btable.NewColumn("diff", "Difficulty", 15),
 		btable.NewColumn("dur", "Duration", 15),
+		btable.NewColumn("status", "Status", 15),
 	}
 )
 
@@ -107,6 +115,7 @@ const (
 	stateMainMenu
 	stateLogin
 	stateProjectList
+	stateLanguageSelection
 )
 
 type mainMenuChoice int
@@ -142,10 +151,25 @@ type model struct {
 	errorMsg     string
 	loading      bool
 	selectedInfo string
+
+	// Language Selection
+	selectedProject *api.Project
+	languages       []string
+	languageIndex   int
+	cloning         bool
+	cloneProgress   float64
 }
 
 type errMsg struct {
 	err error
+}
+
+// cloneCompleteMsg is sent when the git clone operation completes successfully
+type cloneCompleteMsg struct{}
+
+// cloneProgressMsg contains the current progress of the git clone operation
+type cloneProgressMsg struct {
+	progress float64
 }
 
 type keyMap struct {
@@ -363,12 +387,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter":
 				selectedRow := m.table.HighlightedRow()
 				if selectedRow.Data != nil {
-					id := selectedRow.Data["id"]
-					name := selectedRow.Data["name"]
-					lang := selectedRow.Data["lang"]
-					diff := selectedRow.Data["diff"]
-					dur := selectedRow.Data["dur"]
-					m.selectedInfo = fmt.Sprintf("Selected: ID=%v, Name=%v, Language=%v, Difficulty=%v, Duration=%v", id, name, lang, diff, dur)
+					// Check if project is already downloaded
+					cfg, err := config.ReadConfig()
+					if err == nil && cfg.DownloadedProjects != nil {
+						if projectID, ok := selectedRow.Data["id"].(string); ok && cfg.DownloadedProjects[projectID] {
+							m.errorMsg = "Project already downloaded. Please select a different project."
+							return m, nil
+						}
+					}
+
+					// Find the selected project
+					for _, p := range m.projects {
+						if p.ID == selectedRow.Data["id"] {
+							m.selectedProject = &p
+							// Split languages by comma and trim spaces
+							m.languages = strings.Split(p.Language, ",")
+							for i := range m.languages {
+								m.languages[i] = strings.TrimSpace(m.languages[i])
+							}
+							m.languageIndex = 0
+							m.state = stateLanguageSelection
+							return m, nil
+						}
+					}
 				}
 			}
 		case tea.WindowSizeMsg:
@@ -380,13 +421,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case []api.Project:
 			m.projects = msg
 			rows := []btable.Row{}
+
+			// Get downloaded projects from config
+			cfg, _ := config.ReadConfig()
+			downloadedProjects := make(map[string]bool)
+			if cfg.DownloadedProjects != nil {
+				downloadedProjects = cfg.DownloadedProjects
+			}
+
 			for _, p := range msg {
+				status := ""
+				if downloadedProjects[p.ID] {
+					status = "✓ Downloaded"
+				}
 				rows = append(rows, btable.NewRow(map[string]interface{}{
-					"id":   p.ID,
-					"name": p.Name,
-					"lang": p.Language,
-					"diff": p.Difficulty,
-					"dur":  fmt.Sprintf("%d min", p.EstimatedDurationInMinutes),
+					"id":     p.ID,
+					"name":   p.Name,
+					"lang":   p.Language,
+					"diff":   p.Difficulty,
+					"dur":    fmt.Sprintf("%d min", p.EstimatedDurationInMinutes),
+					"status": status,
 				}))
 			}
 			m.table = btable.New(bubbleTableColumns).
@@ -399,6 +453,55 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loading = false
 		}
 		m.table, cmd = m.table.Update(msg)
+	case stateLanguageSelection:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "ctrl+c", "q":
+				m.quitting = true
+				return m, tea.Quit
+			case "esc", "b":
+				m.state = stateProjectList
+				m.selectedProject = nil
+				m.languages = nil
+				m.languageIndex = 0
+				m.errorMsg = ""
+				return m, nil
+			case "up", "k":
+				m.languageIndex--
+				if m.languageIndex < 0 {
+					m.languageIndex = len(m.languages) - 1
+				}
+			case "down", "j":
+				m.languageIndex++
+				if m.languageIndex >= len(m.languages) {
+					m.languageIndex = 0
+				}
+			case "enter":
+				if m.selectedProject != nil {
+					m.cloning = true
+					m.errorMsg = ""
+					return m, tea.Batch(
+						m.cloneProject(m.selectedProject.Name, m.languages[m.languageIndex]),
+						m.updateCloneProgress(),
+					)
+				}
+			}
+		case cloneCompleteMsg:
+			m.cloning = false
+			m.state = stateProjectList
+			m.selectedProject = nil
+			m.languages = nil
+			m.languageIndex = 0
+			return m, nil
+		case cloneProgressMsg:
+			m.cloneProgress = msg.progress
+			return m, nil
+		case errMsg:
+			m.errorMsg = msg.err.Error()
+			m.cloning = false
+			return m, nil
+		}
 	}
 
 	return m, cmd
@@ -467,15 +570,42 @@ func (m model) View() string {
 		if m.loading {
 			return headerStyle.Render("\nLoading projects...")
 		}
-		if m.errorMsg != "" {
-			return errorStyle.Render(fmt.Sprintf("Error: %s\nPress q to quit.", m.errorMsg))
-		}
 		helpView := helpStyle.Render(m.help.View(keys) + "  [esc/b] back")
 		info := ""
 		if m.selectedInfo != "" {
 			info = "\n" + m.selectedInfo
 		}
-		return fmt.Sprintf("%s\n%s%s", m.table.View(), helpView, info)
+		view := fmt.Sprintf("%s\n%s%s", m.table.View(), helpView, info)
+		if m.errorMsg != "" {
+			view = fmt.Sprintf("%s\n\n%s", view, errorStyle.Render(m.errorMsg))
+		}
+		return view
+	case stateLanguageSelection:
+		if m.cloning {
+			progress := int(m.cloneProgress * 100)
+			progressBar := strings.Repeat("█", progress/10) + strings.Repeat("░", 10-progress/10)
+			return fmt.Sprintf("%s\n\nCloning project...\n[%s] %d%%\n\nPress q to quit",
+				headerStyle.Render("Cloning Project"),
+				progressBar,
+				progress)
+		}
+
+		menu := headerStyle.Render("\nSelect a language for "+m.selectedProject.Name) + "\n\n"
+		for i, lang := range m.languages {
+			cursor := "  "
+			style := menuItemStyle
+			if m.languageIndex == i {
+				cursor = "> "
+				style = selectedMenuItemStyle
+			}
+			menu += fmt.Sprintf("%s%s\n", cursor, style.Render(lang))
+		}
+		menu += helpStyle.Render("\nUse ↑/↓ or k/j to move, Enter to select, [esc/b] back, q to quit")
+
+		if m.errorMsg != "" {
+			menu += "\n\n" + errorStyle.Render("Error: "+m.errorMsg)
+		}
+		return menu
 	}
 	return ""
 }
@@ -545,7 +675,6 @@ func fitTableColumns(projects []api.Project) []btable.Column {
 	}
 	for _, p := range projects {
 		row := []string{
-			p.ID,
 			p.Name,
 			p.Language,
 			p.Difficulty,
@@ -560,4 +689,66 @@ func fitTableColumns(projects []api.Project) []btable.Column {
 		cols[i] = btable.NewColumn(h, h, maxLens[i]+2) // +2 for padding
 	}
 	return cols
+}
+
+// --- Project Cloning ---
+// cloneProject initiates the git clone operation for the selected project and language.
+// It creates the projects directory if it doesn't exist, formats the repository URL,
+// and updates the config file with the downloaded project information.
+func (m model) cloneProject(projectName, language string) tea.Cmd {
+	return func() tea.Msg {
+		// Create projects directory if it doesn't exist
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return errMsg{err: fmt.Errorf("failed to get home directory: %w", err)}
+		}
+
+		projectsDir := filepath.Join(homeDir, "404skill_projects")
+		if err := os.MkdirAll(projectsDir, 0755); err != nil {
+			return errMsg{err: fmt.Errorf("failed to create projects directory: %w", err)}
+		}
+
+		// Format project name for repo URL
+		repoName := strings.ToLower(strings.ReplaceAll(projectName, " ", "_"))
+		repoURL := fmt.Sprintf("https://github.com/404skill/%s_%s", repoName, language)
+		targetDir := filepath.Join(projectsDir, fmt.Sprintf("%s_%s", repoName, language))
+
+		// Start git clone
+		cmd := exec.Command("git", "clone", repoURL, targetDir)
+		if err := cmd.Run(); err != nil {
+			return errMsg{err: fmt.Errorf("failed to clone repository: %w", err)}
+		}
+
+		// Update config with downloaded project
+		cfg, err := config.ReadConfig()
+		if err != nil {
+			return errMsg{err: fmt.Errorf("failed to read config: %w", err)}
+		}
+
+		// Add project to downloaded projects list
+		if cfg.DownloadedProjects == nil {
+			cfg.DownloadedProjects = make(map[string]bool)
+		}
+		cfg.DownloadedProjects[m.selectedProject.ID] = true
+
+		if err := config.WriteConfig(cfg); err != nil {
+			return errMsg{err: fmt.Errorf("failed to update config: %w", err)}
+		}
+
+		return cloneCompleteMsg{}
+	}
+}
+
+// updateCloneProgress simulates progress updates for the git clone operation.
+// Since git clone doesn't provide real-time progress information, this function
+// simulates progress to provide visual feedback to the user.
+func (m model) updateCloneProgress() tea.Cmd {
+	return func() tea.Msg {
+		// Simulate progress updates
+		for i := 0; i <= 100; i += 10 {
+			time.Sleep(100 * time.Millisecond)
+			return cloneProgressMsg{progress: float64(i) / 100}
+		}
+		return cloneCompleteMsg{}
+	}
 }

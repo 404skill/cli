@@ -29,10 +29,11 @@ func init() {
 var ConfigFilePath string
 
 type Config struct {
-	Username    string    `yaml:"username"`
-	Password    string    `yaml:"password"`
-	AccessToken string    `yaml:"access_token"`
-	LastUpdated time.Time `yaml:"last_updated"`
+	Username           string          `yaml:"username"`
+	Password           string          `yaml:"password"`
+	AccessToken        string          `yaml:"access_token"`
+	LastUpdated        time.Time       `yaml:"last_updated"`
+	DownloadedProjects map[string]bool `yaml:"downloaded_projects"`
 }
 
 func ReadConfig() (Config, error) {
