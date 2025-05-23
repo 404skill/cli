@@ -1,61 +1,107 @@
 # Project Cloning Feature
 
 ## Overview
-The project cloning feature allows users to download project templates from GitHub based on their selected language preference. This feature is part of the project initialization workflow.
+The project cloning feature allows users to download and manage programming projects from the 404skill platform. It provides a seamless experience for selecting, downloading, and accessing projects, with built-in support for multiple programming languages and error handling.
 
 ## Architecture
 
 ### States
-- `stateProjectList`: Shows available projects with download status
-- `stateLanguageSelection`: Shows available languages for the selected project
-- Cloning progress is shown with a simulated progress bar
+The feature uses a state machine with the following states:
+- `stateProjectList`: Displays available projects in a table format
+- `stateLanguageSelection`: Allows users to select a programming language for the project
+- `stateConfirmRedownload`: Handles re-downloading of projects when the directory is not found
 
-### Data Flow
-1. User selects a project from the project list
-   - Already downloaded projects are marked with a "✓ Downloaded" status
-   - Attempting to select a downloaded project shows an error message
-2. System parses available languages from the project's language field
-3. User selects a language
-4. System constructs GitHub repository URL using the format: `github.com/404skill/{project_name}_{language}`
-5. Repository is cloned to `~/404skill_projects/{project_name}_{language}`
-6. Project ID is added to the config file's `DownloadedProjects` map
+### Data Model
+The project table displays the following information:
+- Project Name
+- Available Languages
+- Difficulty Level
+- Estimated Duration
+- Download Status (✓ Downloaded)
 
-### Error Handling
-- Failed clone operations are displayed to the user
-- User can retry the operation or go back to project selection
-- Error messages are cleared when starting a new operation
-- Attempting to download an already downloaded project shows an error message
+## Data Flow
+
+### Project Selection and Download
+1. User selects a project from the table
+2. System checks if the project is already downloaded:
+   - If downloaded: Attempts to open the project directory
+   - If directory not found: Prompts for re-download
+   - If not downloaded: Proceeds to language selection
+3. User selects a programming language
+4. System clones the repository with progress tracking
+5. On successful clone:
+   - Updates project status in the table
+   - Opens the project directory in file explorer
+   - Updates configuration to track downloaded projects
+
+### Re-download Process
+1. When a project is marked as downloaded but the directory is not found:
+   - System enters `stateConfirmRedownload`
+   - User can select a language for re-download
+   - Existing directory is removed before cloning
+   - Progress is tracked during the clone operation
+
+## Error Handling
+
+### Directory Management
+- Projects are stored in `~/404skill_projects`
+- Directory names are formatted as `project_name_language`
+- Existing directories are removed before re-download
+- File explorer opens automatically after successful clone
+
+### Error Scenarios
+1. Home Directory Access:
+   - Error: "Project already downloaded but couldn't determine home directory"
+   - Action: Prompts for re-download
+
+2. Project Directory Not Found:
+   - Error: "Project was downloaded but directory not found"
+   - Action: Prompts for re-download with language selection
+
+3. Directory Access Issues:
+   - Error: "Project already downloaded but couldn't access projects directory"
+   - Action: Shows error message
+
+4. File Explorer Issues:
+   - Error: "Project was downloaded but couldn't open directory"
+   - Action: Shows error message but maintains download status
+
+### Clone Operation
+- Progress tracking using git clone's `--progress` flag
+- Real-time progress updates from stderr output
+- Error capture from git output
+- Verification of successful clone by checking directory existence
 
 ## Implementation Details
 
-### Project Status Display
-- Projects are marked with a "✓ Downloaded" status in the project list
-- Status is shown in a faint green color to indicate completion
-- Downloaded projects cannot be re-initialized to prevent duplicates
+### Progress Tracking
+- Uses git clone's `--progress` flag for real-time updates
+- Parses progress from stderr output
+- Updates progress bar based on actual download progress
+- Handles both initial downloads and re-downloads
 
-### Repository URL Format
-- Project names are converted to lowercase
-- Spaces are replaced with underscores
-- Language is appended with an underscore
-- Example: "Scooter Rental System" with language "dotnet" becomes:
-  `github.com/404skill/scooter_rental_system_dotnet`
+### State Management
+- Tracks both `selectedProject` and `confirmRedownloadProject`
+- Clears project references after successful clone
+- Updates table status without full refresh
+- Maintains language selection state during re-download
 
-### Progress Indication
-- Since git clone doesn't provide real-time progress, we simulate progress updates
-- Progress bar updates every 100ms
-- Visual feedback helps users understand the operation is in progress
-
-### Configuration Updates
-- Downloaded projects are tracked in `~/.404skill/config.yml`
-- Project IDs are stored in a map to prevent duplicate downloads
-- Configuration is updated after successful clone operations
-- Project status is checked before allowing initialization
+### Configuration
+- Tracks downloaded projects in config file
+- Updates project status immediately after successful clone
+- Persists download status across sessions
 
 ## Future Improvements
-1. Add support for custom repository URLs
-2. Implement real progress tracking for git clone operations
-3. Add option to update existing projects
-4. Add support for different git providers
-5. Implement parallel download capabilities for multiple projects
-6. Add ability to remove projects from downloaded list
-7. Add option to force re-download of existing projects 
+1. Add support for:
+   - Project updates/pulling latest changes
+   - Custom download locations
+   - Project deletion
+   - Multiple language downloads
+2. Enhance error handling:
+   - Network timeout handling
+   - Retry mechanisms
+   - More detailed error messages
+3. Improve progress tracking:
+   - More granular progress updates
+   - Estimated time remaining
+   - Download speed information 
