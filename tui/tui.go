@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -116,6 +119,7 @@ const (
 	stateLogin
 	stateProjectList
 	stateLanguageSelection
+	stateConfirmRedownload
 )
 
 type mainMenuChoice int
@@ -158,6 +162,10 @@ type model struct {
 	languageIndex   int
 	cloning         bool
 	cloneProgress   float64
+
+	// Confirm Redownload
+	confirmRedownloadProject *api.Project
+	confirmRedownloadLang    string
 }
 
 type errMsg struct {
@@ -391,7 +399,71 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cfg, err := config.ReadConfig()
 					if err == nil && cfg.DownloadedProjects != nil {
 						if projectID, ok := selectedRow.Data["id"].(string); ok && cfg.DownloadedProjects[projectID] {
-							m.errorMsg = "Project already downloaded. Please select a different project."
+							// Try to open the project directory
+							homeDir, err := os.UserHomeDir()
+							if err != nil {
+								m.errorMsg = "Project already downloaded but couldn't determine home directory."
+								return m, nil
+							}
+
+							// Find the project in our list to get its name
+							var projectName string
+							for _, p := range m.projects {
+								if p.ID == projectID {
+									projectName = p.Name
+									break
+								}
+							}
+
+							if projectName == "" {
+								m.errorMsg = "Project already downloaded but couldn't find project details."
+								return m, nil
+							}
+
+							// Format project name for directory
+							repoName := strings.ToLower(strings.ReplaceAll(projectName, " ", "_"))
+							projectsDir := filepath.Join(homeDir, "404skill_projects")
+
+							// Try to find the project directory
+							entries, err := os.ReadDir(projectsDir)
+							if err != nil {
+								m.errorMsg = "Project already downloaded but couldn't access projects directory."
+								return m, nil
+							}
+
+							var projectDir string
+							for _, entry := range entries {
+								if entry.IsDir() && strings.HasPrefix(entry.Name(), repoName) {
+									projectDir = filepath.Join(projectsDir, entry.Name())
+									break
+								}
+							}
+
+							if projectDir == "" {
+								// Find the project and its languages
+								for _, p := range m.projects {
+									if p.ID == projectID {
+										m.confirmRedownloadProject = &p
+										m.languages = strings.Split(p.Language, ",")
+										for i := range m.languages {
+											m.languages[i] = strings.TrimSpace(m.languages[i])
+										}
+										m.languageIndex = 0
+										m.state = stateConfirmRedownload
+										return m, nil
+									}
+								}
+								m.errorMsg = "Project was downloaded but directory not found. It might have been moved or deleted."
+								return m, nil
+							}
+
+							// Try to open the directory
+							if err := openFileExplorer(projectDir); err != nil {
+								m.errorMsg = fmt.Sprintf("Project was downloaded but couldn't open directory: %v", err)
+								return m, nil
+							}
+
+							m.errorMsg = "Project already downloaded. Opening project directory..."
 							return m, nil
 						}
 					}
@@ -481,18 +553,98 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedProject != nil {
 					m.cloning = true
 					m.errorMsg = ""
-					return m, tea.Batch(
-						m.cloneProject(m.selectedProject.Name, m.languages[m.languageIndex]),
-						m.updateCloneProgress(),
-					)
+					return m, m.cloneProject(m.selectedProject.Name, m.languages[m.languageIndex])
 				}
 			}
 		case cloneCompleteMsg:
 			m.cloning = false
 			m.state = stateProjectList
+			// Update the status of the cloned project in the table
+			rows := []btable.Row{}
+			for _, p := range m.projects {
+				status := ""
+				if (m.selectedProject != nil && p.ID == m.selectedProject.ID) ||
+					(m.confirmRedownloadProject != nil && p.ID == m.confirmRedownloadProject.ID) {
+					status = "✓ Downloaded"
+				}
+				rows = append(rows, btable.NewRow(map[string]interface{}{
+					"id":     p.ID,
+					"name":   p.Name,
+					"lang":   p.Language,
+					"diff":   p.Difficulty,
+					"dur":    fmt.Sprintf("%d min", p.EstimatedDurationInMinutes),
+					"status": status,
+				}))
+			}
+			m.table = m.table.WithRows(rows)
+			// Clear both project references
 			m.selectedProject = nil
-			m.languages = nil
-			m.languageIndex = 0
+			m.confirmRedownloadProject = nil
+			m.confirmRedownloadLang = ""
+			return m, nil
+		case cloneProgressMsg:
+			m.cloneProgress = msg.progress
+			return m, nil
+		case errMsg:
+			m.errorMsg = msg.err.Error()
+			m.cloning = false
+			return m, nil
+		}
+	case stateConfirmRedownload:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "ctrl+c", "q":
+				m.quitting = true
+				return m, tea.Quit
+			case "esc", "b":
+				m.state = stateProjectList
+				m.confirmRedownloadProject = nil
+				m.confirmRedownloadLang = ""
+				m.errorMsg = ""
+				return m, nil
+			case "up", "k":
+				m.languageIndex--
+				if m.languageIndex < 0 {
+					m.languageIndex = len(m.languages) - 1
+				}
+			case "down", "j":
+				m.languageIndex++
+				if m.languageIndex >= len(m.languages) {
+					m.languageIndex = 0
+				}
+			case "enter":
+				if m.confirmRedownloadProject != nil {
+					m.cloning = true
+					m.errorMsg = ""
+					return m, m.cloneProject(m.confirmRedownloadProject.Name, m.languages[m.languageIndex])
+				}
+			}
+		case cloneCompleteMsg:
+			m.cloning = false
+			m.state = stateProjectList
+			// Update the status of the cloned project in the table
+			rows := []btable.Row{}
+			for _, p := range m.projects {
+				status := ""
+				if (m.selectedProject != nil && p.ID == m.selectedProject.ID) ||
+					(m.confirmRedownloadProject != nil && p.ID == m.confirmRedownloadProject.ID) {
+					status = "✓ Downloaded"
+				}
+				rows = append(rows, btable.NewRow(map[string]interface{}{
+					"id":     p.ID,
+					"name":   p.Name,
+					"lang":   p.Language,
+					"diff":   p.Difficulty,
+					"dur":    fmt.Sprintf("%d min", p.EstimatedDurationInMinutes),
+					"status": status,
+				}))
+			}
+			m.table = m.table.WithRows(rows)
+			// Clear both project references
+			m.selectedProject = nil
+			m.confirmRedownloadProject = nil
+			m.confirmRedownloadLang = ""
 			return m, nil
 		case cloneProgressMsg:
 			m.cloneProgress = msg.progress
@@ -606,6 +758,34 @@ func (m model) View() string {
 			menu += "\n\n" + errorStyle.Render("Error: "+m.errorMsg)
 		}
 		return menu
+	case stateConfirmRedownload:
+		if m.cloning {
+			progress := int(m.cloneProgress * 100)
+			progressBar := strings.Repeat("█", progress/10) + strings.Repeat("░", 10-progress/10)
+			return fmt.Sprintf("%s\n\nCloning project...\n[%s] %d%%\n\nPress q to quit",
+				headerStyle.Render("Cloning Project"),
+				progressBar,
+				progress)
+		}
+
+		menu := headerStyle.Render("\nProject directory not found. Would you like to re-download?") + "\n\n"
+		menu += fmt.Sprintf("Project: %s\n\n", m.confirmRedownloadProject.Name)
+		menu += "Select language:\n\n"
+		for i, lang := range m.languages {
+			cursor := "  "
+			style := menuItemStyle
+			if m.languageIndex == i {
+				cursor = "> "
+				style = selectedMenuItemStyle
+			}
+			menu += fmt.Sprintf("%s%s\n", cursor, style.Render(lang))
+		}
+		menu += helpStyle.Render("\nUse ↑/↓ or k/j to move, Enter to confirm, [esc/b] back, q to quit")
+
+		if m.errorMsg != "" {
+			menu += "\n\n" + errorStyle.Render("Error: "+m.errorMsg)
+		}
+		return menu
 	}
 	return ""
 }
@@ -692,6 +872,20 @@ func fitTableColumns(projects []api.Project) []btable.Column {
 }
 
 // --- Project Cloning ---
+// openFileExplorer opens the file explorer at the specified path
+func openFileExplorer(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", path)
+	case "darwin":
+		cmd = exec.Command("open", path)
+	default: // "linux", "freebsd", "openbsd", "netbsd"
+		cmd = exec.Command("xdg-open", path)
+	}
+	return cmd.Start()
+}
+
 // cloneProject initiates the git clone operation for the selected project and language.
 // It creates the projects directory if it doesn't exist, formats the repository URL,
 // and updates the config file with the downloaded project information.
@@ -713,10 +907,55 @@ func (m model) cloneProject(projectName, language string) tea.Cmd {
 		repoURL := fmt.Sprintf("https://github.com/404skill/%s_%s", repoName, language)
 		targetDir := filepath.Join(projectsDir, fmt.Sprintf("%s_%s", repoName, language))
 
-		// Start git clone
-		cmd := exec.Command("git", "clone", repoURL, targetDir)
-		if err := cmd.Run(); err != nil {
-			return errMsg{err: fmt.Errorf("failed to clone repository: %w", err)}
+		// Remove existing directory if it exists
+		if err := os.RemoveAll(targetDir); err != nil {
+			return errMsg{err: fmt.Errorf("failed to remove existing directory: %w", err)}
+		}
+
+		// Start git clone with progress output
+		cmd := exec.Command("git", "clone", "--progress", repoURL, targetDir)
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return errMsg{err: fmt.Errorf("failed to create stderr pipe: %w", err)}
+		}
+
+		if err := cmd.Start(); err != nil {
+			return errMsg{err: fmt.Errorf("failed to start git clone: %w", err)}
+		}
+
+		// Read progress from stderr
+		scanner := bufio.NewScanner(stderr)
+		var cloneError string
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, "Receiving objects") {
+				// Parse percentage from line like "Receiving objects: 45% (9/20)"
+				if strings.Contains(line, "%") {
+					parts := strings.Split(line, "%")
+					if len(parts) > 0 {
+						if progress, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64); err == nil {
+							// Send progress update
+							tea.Batch(
+								func() tea.Msg { return cloneProgressMsg{progress: progress / 100} },
+							)()
+						}
+					}
+				}
+			} else if strings.Contains(line, "error:") || strings.Contains(line, "fatal:") {
+				cloneError = line
+			}
+		}
+
+		if err := cmd.Wait(); err != nil {
+			if cloneError != "" {
+				return errMsg{err: fmt.Errorf("git clone failed: %s", cloneError)}
+			}
+			return errMsg{err: fmt.Errorf("git clone failed: %w", err)}
+		}
+
+		// Verify the clone was successful by checking if the directory exists and has content
+		if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+			return errMsg{err: fmt.Errorf("clone appeared to succeed but target directory is missing")}
 		}
 
 		// Update config with downloaded project
@@ -729,26 +968,30 @@ func (m model) cloneProject(projectName, language string) tea.Cmd {
 		if cfg.DownloadedProjects == nil {
 			cfg.DownloadedProjects = make(map[string]bool)
 		}
-		cfg.DownloadedProjects[m.selectedProject.ID] = true
+
+		// Get the project ID based on the current state
+		var projectID string
+		if m.state == stateConfirmRedownload && m.confirmRedownloadProject != nil {
+			projectID = m.confirmRedownloadProject.ID
+		} else if m.selectedProject != nil {
+			projectID = m.selectedProject.ID
+		} else {
+			return errMsg{err: fmt.Errorf("no project selected for download")}
+		}
+
+		cfg.DownloadedProjects[projectID] = true
 
 		if err := config.WriteConfig(cfg); err != nil {
 			return errMsg{err: fmt.Errorf("failed to update config: %w", err)}
 		}
 
-		return cloneCompleteMsg{}
-	}
-}
-
-// updateCloneProgress simulates progress updates for the git clone operation.
-// Since git clone doesn't provide real-time progress information, this function
-// simulates progress to provide visual feedback to the user.
-func (m model) updateCloneProgress() tea.Cmd {
-	return func() tea.Msg {
-		// Simulate progress updates
-		for i := 0; i <= 100; i += 10 {
-			time.Sleep(100 * time.Millisecond)
-			return cloneProgressMsg{progress: float64(i) / 100}
+		// Open file explorer at the cloned directory
+		if err := openFileExplorer(targetDir); err != nil {
+			// Don't return error here, as the clone was successful
+			// Just log the error and continue
+			fmt.Printf("Warning: Failed to open file explorer: %v\n", err)
 		}
+
 		return cloneCompleteMsg{}
 	}
 }
