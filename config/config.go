@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 func init() {
@@ -28,6 +28,7 @@ func init() {
 
 var ConfigFilePath string
 
+// Config represents the application configuration
 type Config struct {
 	Username           string          `yaml:"username"`
 	Password           string          `yaml:"password"`
@@ -36,6 +37,7 @@ type Config struct {
 	DownloadedProjects map[string]bool `yaml:"downloaded_projects"`
 }
 
+// ReadConfig reads the configuration from the config file
 func ReadConfig() (Config, error) {
 	var config Config
 	data, err := ioutil.ReadFile(ConfigFilePath)

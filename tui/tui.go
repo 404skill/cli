@@ -37,6 +37,7 @@ const (
 	stateProjectList
 	stateLanguageSelection
 	stateConfirmRedownload
+	stateTestProject
 )
 
 type mainMenuChoice int
@@ -54,6 +55,22 @@ type model struct {
 	mainMenuChoices []string
 	selectedAction  mainMenuChoice
 
+	// Components
+	loginComponent    *LoginComponent
+	projectComponent  *ProjectComponent
+	languageComponent *LanguageComponent
+	testComponent     *TestComponent
+
+	// Dependencies
+	fileManager   FileManager
+	configManager ConfigManager
+	help          help.Model
+
+	// State
+	ready    bool
+	quitting bool
+	errorMsg string
+
 	// Login
 	loginInputs   []textinput.Model
 	loginFocusIdx int
@@ -63,13 +80,9 @@ type model struct {
 	// Projects
 	table        btable.Model
 	viewport     viewport.Model
-	help         help.Model
 	client       api.ClientInterface
 	projects     []api.Project
 	selected     int
-	ready        bool
-	quitting     bool
-	errorMsg     string
 	loading      bool
 	selectedInfo string
 
@@ -83,10 +96,6 @@ type model struct {
 	// Confirm Redownload
 	confirmRedownloadProject *api.Project
 	confirmRedownloadLang    string
-
-	// New component-based architecture
-	projectComponent  *ProjectComponent
-	languageComponent *LanguageComponent
 }
 
 type errMsg struct {
@@ -157,6 +166,9 @@ func InitialModel(client api.ClientInterface) model {
 	rows := []btable.Row{}
 	table := btable.New(bubbleTableColumns).WithRows(rows)
 
+	fileManager := NewDefaultFileManager()
+	configManager := config.NewConfigManager()
+
 	return model{
 		state:           stateRefreshingToken,
 		mainMenuIndex:   0,
@@ -168,6 +180,9 @@ func InitialModel(client api.ClientInterface) model {
 		client:          client,
 		selected:        -1,
 		loading:         false,
+		fileManager:     fileManager,
+		configManager:   configManager,
+		testComponent:   NewTestComponent(fileManager, configManager),
 	}
 }
 
@@ -227,9 +242,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "enter":
 				m.selectedAction = mainMenuChoice(m.mainMenuIndex)
-				m.state = stateProjectList
-				m.loading = true
-				return m, fetchProjects(m.client)
+				if m.selectedAction == choiceTest {
+					m.state = stateTestProject
+					m.loading = true
+					return m, fetchProjects(m.client)
+				} else {
+					m.state = stateProjectList
+					m.loading = true
+					return m, fetchProjects(m.client)
+				}
 			case "q", "ctrl+c":
 				m.quitting = true
 				return m, tea.Quit
@@ -575,6 +596,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cloning = false
 			return m, nil
 		}
+	case stateTestProject:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "ctrl+c", "q":
+				m.quitting = true
+				return m, tea.Quit
+			case "esc", "b":
+				m.state = stateMainMenu
+				m.errorMsg = ""
+				return m, nil
+			}
+		case []api.Project:
+			// Pass projects to test component
+			updatedComponent, cmd := m.testComponent.Update(msg)
+			m.testComponent = updatedComponent.(*TestComponent)
+			m.loading = false
+			return m, cmd
+		case errMsg:
+			m.errorMsg = msg.err.Error()
+			m.loading = false
+			return m, nil
+		}
+
+		// Update test component
+		updatedComponent, cmd := m.testComponent.Update(msg)
+		m.testComponent = updatedComponent.(*TestComponent)
+		return m, cmd
 	}
 
 	return m, cmd
@@ -707,6 +756,11 @@ func (m model) View() string {
 			menu += "\n\n" + errorStyle.Render("Error: "+m.errorMsg)
 		}
 		return menu
+	case stateTestProject:
+		if m.loading {
+			return headerStyle.Render("\nLoading projects...")
+		}
+		return m.testComponent.View()
 	}
 	return ""
 }

@@ -87,4 +87,9 @@ var (
 		btable.NewColumn("dur", "Duration", 15),
 		btable.NewColumn("status", "Status", 15),
 	}
+
+	spinnerStyle = lipgloss.NewStyle().
+			Foreground(accent).
+			Bold(true).
+			Padding(0, 1)
 )

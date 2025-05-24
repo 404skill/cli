@@ -15,6 +15,7 @@ const (
 	StateProjectList
 	StateLanguageSelection
 	StateConfirmRedownload
+	StateTestProject
 )
 
 // MainMenuChoice represents the available choices in the main menu
@@ -37,6 +38,7 @@ type Model struct {
 	loginComponent    *LoginComponent
 	projectComponent  *ProjectComponent
 	languageComponent *LanguageComponent
+	testComponent     *TestComponent
 	help              help.Model
 
 	// State
