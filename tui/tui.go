@@ -785,13 +785,28 @@ func (m model) tryLogin() tea.Cmd {
 		if err != nil {
 			return errMsg{err: fmt.Errorf("invalid credentials: %w", err)}
 		}
-		cfg := config.Config{
-			Username:    username,
-			Password:    password,
-			AccessToken: token,
-			LastUpdated: time.Now(),
+
+		// Read existing config to preserve DownloadedProjects
+		cfg, err := config.ReadConfig()
+		if err != nil {
+			// If config doesn't exist, create new one
+			cfg = config.Config{}
 		}
-		_ = config.WriteConfig(cfg)
+
+		// Update only the auth-related fields
+		cfg.Username = username
+		cfg.Password = password
+		cfg.AccessToken = token
+		cfg.LastUpdated = time.Now()
+
+		// Ensure DownloadedProjects map exists
+		if cfg.DownloadedProjects == nil {
+			cfg.DownloadedProjects = make(map[string]bool)
+		}
+
+		if err := config.WriteConfig(cfg); err != nil {
+			return errMsg{err: fmt.Errorf("failed to write config: %w", err)}
+		}
 		return "login-success"
 	}
 }
