@@ -74,10 +74,6 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 			return t, nil
 		}
 
-		// Debug logging
-		fmt.Printf("Total projects: %d\n", len(msg))
-		fmt.Printf("Downloaded projects in config: %+v\n", cfg.DownloadedProjects)
-
 		for _, proj := range msg {
 			isDownloaded := cfg.DownloadedProjects != nil && cfg.DownloadedProjects[proj.ID]
 			fmt.Printf("Project %s (ID: %s) downloaded: %v\n", proj.Name, proj.ID, isDownloaded)
@@ -93,8 +89,6 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 				}))
 			}
 		}
-
-		fmt.Printf("Filtered rows: %d\n", len(rows))
 
 		t.table = btable.New(bubbleTableColumns).
 			WithRows(rows).
@@ -160,7 +154,7 @@ func (t *TestComponent) runTests(project api.Project) tea.Cmd {
 		}
 
 		// Run docker-compose command
-		cmd := exec.Command("docker-compose", "up", "-d", "--build")
+		cmd := exec.Command("docker", "compose", "up", "-d", "--build", "--abort-on-container-exit")
 		cmd.Dir = projectDir
 
 		// Capture output but don't display it

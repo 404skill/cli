@@ -169,8 +169,14 @@ func InitialModel(client api.ClientInterface) model {
 	fileManager := NewDefaultFileManager()
 	configManager := config.NewConfigManager()
 
+	state := stateLogin
+	cfg, err := config.ReadConfig()
+	if err == nil && cfg.Username != "" && cfg.Password != "" {
+		state = stateRefreshingToken
+	}
+
 	return model{
-		state:           stateRefreshingToken,
+		state:           state,
 		mainMenuIndex:   0,
 		mainMenuChoices: []string{"Init a project", "Test a project"},
 		loginInputs:     []textinput.Model{username, password},
