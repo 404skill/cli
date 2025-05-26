@@ -903,19 +903,22 @@ func (m model) cloneProject(projectName, language string) tea.Cmd {
 		repoURL := fmt.Sprintf("https://github.com/404skill/%s_%s", repoName, language)
 		targetDir := filepath.Join(projectsDir, fmt.Sprintf("%s_%s", repoName, language))
 
-		// Remove existing directory if it exists
-		if err := os.RemoveAll(targetDir); err != nil {
-			return errMsg{err: fmt.Errorf("failed to remove existing directory: %w", err)}
+		testRepoUrl := fmt.Sprintf("https://github.com/404skill/%s_%s_test", repoName, language)
+		testDir := filepath.Join(projectsDir, ".tests", fmt.Sprintf("%s_%s", repoName, language))
+		if err := os.MkdirAll(testDir, 0755); err != nil {
+			return errMsg{err: fmt.Errorf("failed to create tests directory: %w", err)}
 		}
 
 		// Start git clone with progress output
-		cmd := exec.Command("git", "clone", "--progress", repoURL, targetDir)
-		stderr, err := cmd.StderrPipe()
+		cmdCloneProject := exec.Command("git", "clone", "--progress", repoURL, targetDir)
+		cmdCloneTest := exec.Command("git", "clone", "--progress", testRepoUrl, testDir)
+
+		stderr, err := cmdCloneProject.StderrPipe()
 		if err != nil {
 			return errMsg{err: fmt.Errorf("failed to create stderr pipe: %w", err)}
 		}
 
-		if err := cmd.Start(); err != nil {
+		if err := cmdCloneProject.Start(); err != nil {
 			return errMsg{err: fmt.Errorf("failed to start git clone: %w", err)}
 		}
 
@@ -942,10 +945,14 @@ func (m model) cloneProject(projectName, language string) tea.Cmd {
 			}
 		}
 
-		if err := cmd.Wait(); err != nil {
+		if err := cmdCloneProject.Wait(); err != nil {
 			if cloneError != "" {
 				return errMsg{err: fmt.Errorf("git clone failed: %s", cloneError)}
 			}
+			return errMsg{err: fmt.Errorf("git clone failed: %w", err)}
+		}
+
+		if err := cmdCloneTest.Wait(); err != nil {
 			return errMsg{err: fmt.Errorf("git clone failed: %w", err)}
 		}
 
