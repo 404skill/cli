@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"bytes"
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +11,7 @@ import (
 
 	"404skill-cli/api"
 	"404skill-cli/config"
+	"404skill-cli/testreport"
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,15 +23,17 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 // TestComponent handles project testing functionality.
 type TestComponent struct {
-	table         btable.Model
-	projects      []api.Project
-	selected      int
-	testing       bool
-	errorMsg      string
-	fileManager   FileManager
-	configManager ConfigManager
-	help          help.Model
-	spinnerFrame  string
+	table              btable.Model
+	projects           []api.Project
+	selected           int
+	testing            bool
+	errorMsg           string
+	fileManager        FileManager
+	configManager      ConfigManager
+	help               help.Model
+	spinnerFrame       string
+	outputBuffer       []string
+	currentTestProject *api.Project
 }
 
 // NewTestComponent creates a new TestComponent.
@@ -58,12 +61,12 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 			selectedRow := t.table.HighlightedRow()
 			if selectedRow.Data != nil {
 				if projectID, ok := selectedRow.Data["id"].(string); ok {
-					// Find the selected project
 					for _, proj := range t.projects {
 						if proj.ID == projectID {
 							t.testing = true
 							t.errorMsg = ""
-							// Kick off both the test runner and spinner ticker
+							t.currentTestProject = &proj
+
 							return t, tea.Batch(
 								t.runTests(proj),
 								t.spinnerTick(),
@@ -101,13 +104,29 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 			WithRows(rows).
 			Focused(true)
 
-	case testCompleteMsg:
+	case testResultMsg:
 		t.testing = false
-		return t, nil
+		if msg.err != nil {
+			t.errorMsg = msg.err.Error()
+			return t, nil
+		}
 
-	case errMsg:
-		t.errorMsg = msg.err.Error()
-		t.testing = false
+		// Format test results
+		var result strings.Builder
+		result.WriteString(fmt.Sprintf("Test Suite: %s\n", msg.result.Suite.Name))
+		result.WriteString(fmt.Sprintf("Total Tests: %d\n", msg.result.Suite.Tests))
+		result.WriteString(fmt.Sprintf("Passed: %d\n", len(msg.result.PassedTests)))
+		result.WriteString(fmt.Sprintf("Failed: %d\n", len(msg.result.FailedTests)))
+		result.WriteString(fmt.Sprintf("Time: %.2fs\n\n", msg.result.Suite.Time))
+
+		if len(msg.result.FailedTests) > 0 {
+			result.WriteString("Failed Tests:\n")
+			for _, test := range msg.result.FailedTests {
+				result.WriteString(fmt.Sprintf("- %s\n", test))
+			}
+		}
+
+		t.errorMsg = result.String()
 		return t, nil
 
 	case spinnerMsg:
@@ -117,6 +136,22 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 		if t.testing {
 			return t, t.spinnerTick()
 		}
+		return t, nil
+
+	case outputLineMsg:
+		if msg.err != nil {
+			t.testing = false
+			t.errorMsg = msg.err.Error()
+			return t, nil
+		}
+		if msg.line != "" {
+			t.outputBuffer = append(t.outputBuffer, msg.line)
+		}
+		if msg.done {
+			// After command finishes, look for test reports as before
+			return t, t.parseTestReportAfterRun()
+		}
+		// Continue reading output
 		return t, nil
 	}
 
@@ -128,9 +163,11 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 // View renders the TestComponent UI.
 func (t *TestComponent) View() string {
 	if t.testing {
-		return fmt.Sprintf("%s\n\nRunning tests...\n%s\n\nPress q to quit",
+		output := strings.Join(t.outputBuffer, "\n")
+		return fmt.Sprintf("%s\n\nRunning tests...\n%s\n%s\n\nPress q to quit",
 			headerStyle.Render("Testing Project"),
-			spinnerStyle.Render(t.spinnerFrame))
+			spinnerStyle.Render(t.spinnerFrame),
+			output)
 	}
 
 	helpView := helpStyle.Render(t.help.View(keys) + "  [esc/b] back")
@@ -141,12 +178,27 @@ func (t *TestComponent) View() string {
 	return view
 }
 
-// runTests returns a Cmd that runs docker-compose and emits a message when done.
+// testResultMsg contains the parsed test results
+type testResultMsg struct {
+	result *testreport.ParseResult
+	err    error
+}
+
+// Msg for new output line
+// outputLineMsg is sent when a new line of output is available
+// or when the command completes (with done=true)
+type outputLineMsg struct {
+	line string
+	done bool
+	err  error
+}
+
+// runTests returns a Cmd that runs docker-compose and streams output lines.
 func (t *TestComponent) runTests(project api.Project) tea.Cmd {
 	return func() tea.Msg {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return errMsg{err: fmt.Errorf("failed to get home directory: %w", err)}
+			return outputLineMsg{err: fmt.Errorf("failed to get home directory: %w", err), done: true}
 		}
 
 		repoName := strings.ToLower(strings.ReplaceAll(project.Name, " ", "_"))
@@ -154,37 +206,68 @@ func (t *TestComponent) runTests(project api.Project) tea.Cmd {
 
 		entries, err := os.ReadDir(projectsDir)
 		if err != nil {
-			return errMsg{err: fmt.Errorf("failed to read projects directory: %w", err)}
+			return outputLineMsg{err: fmt.Errorf("failed to read projects directory: %w", err), done: true}
 		}
 
 		var projectDir string
+		dirsFound := []string{} // collect all dir names for debug
 		for _, entry := range entries {
-			if entry.IsDir() && strings.HasPrefix(entry.Name(), repoName) {
-				projectDir = filepath.Join(projectsDir, entry.Name())
-				break
+			if entry.IsDir() {
+				dirsFound = append(dirsFound, entry.Name())
+				if strings.HasPrefix(entry.Name(), repoName) {
+					projectDir = filepath.Join(projectsDir, entry.Name())
+					break
+				}
 			}
 		}
 
 		if projectDir == "" {
-			return errMsg{err: fmt.Errorf("project directory not found")}
+			dirsList := strings.Join(dirsFound, ", ")
+			return outputLineMsg{err: fmt.Errorf("project directory not found. Looking for prefix: '%s' in: [%s]", repoName, dirsList), done: true}
 		}
 
 		cmd := exec.Command("docker", "compose", "up", "-d", "--build", "--abort-on-container-exit")
 		cmd.Dir = projectDir
 
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-
-		if err := cmd.Run(); err != nil {
-			out := stderr.String()
-			if out != "" {
-				return errMsg{err: fmt.Errorf("command failed: %s", out)}
-			}
-			return errMsg{err: err}
+		stdoutPipe, err := cmd.StdoutPipe()
+		if err != nil {
+			return outputLineMsg{err: fmt.Errorf("failed to get stdout pipe: %w", err), done: true}
+		}
+		stderrPipe, err := cmd.StderrPipe()
+		if err != nil {
+			return outputLineMsg{err: fmt.Errorf("failed to get stderr pipe: %w", err), done: true}
 		}
 
-		return testCompleteMsg{}
+		if err := cmd.Start(); err != nil {
+			return outputLineMsg{err: fmt.Errorf("failed to start command: %w", err), done: true}
+		}
+
+		// Stream output lines from both stdout and stderr
+		outputChan := make(chan outputLineMsg)
+		go func() {
+			defer close(outputChan)
+			stdoutScanner := bufio.NewScanner(stdoutPipe)
+			stderrScanner := bufio.NewScanner(stderrPipe)
+			for stdoutScanner.Scan() {
+				outputChan <- outputLineMsg{line: stdoutScanner.Text()}
+			}
+			for stderrScanner.Scan() {
+				outputChan <- outputLineMsg{line: stderrScanner.Text()}
+			}
+			if err := cmd.Wait(); err != nil {
+				outputChan <- outputLineMsg{err: fmt.Errorf("command failed: %w", err), done: true}
+				return
+			}
+			outputChan <- outputLineMsg{done: true}
+		}()
+
+		// Return a tea.Cmd that reads from outputChan and sends messages
+		return func() tea.Msg {
+			for msg := range outputChan {
+				return msg
+			}
+			return nil
+		}
 	}
 }
 
@@ -211,3 +294,55 @@ type spinnerMsg struct {
 
 // testCompleteMsg signals that the docker-compose run has finished.
 type testCompleteMsg struct{}
+
+// parseTestReportAfterRun returns a Cmd that looks for and parses the test report after the command
+func (t *TestComponent) parseTestReportAfterRun() tea.Cmd {
+	return func() tea.Msg {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return errMsg{err: fmt.Errorf("failed to get home directory: %w", err)}
+		}
+
+		if t.currentTestProject == nil {
+			return errMsg{err: fmt.Errorf("no project context for test report lookup")}
+		}
+		project := *t.currentTestProject
+		repoName := strings.ToLower(strings.ReplaceAll(project.Name, " ", "_"))
+		projectsDir := filepath.Join(homeDir, "404skill_projects")
+		entries, err := os.ReadDir(projectsDir)
+		if err != nil {
+			return errMsg{err: fmt.Errorf("failed to read projects directory: %w", err)}
+		}
+		var projectDir string
+		for _, entry := range entries {
+			if entry.IsDir() && strings.HasPrefix(entry.Name(), repoName) {
+				projectDir = filepath.Join(projectsDir, entry.Name())
+				break
+			}
+		}
+		if projectDir == "" {
+			return errMsg{err: fmt.Errorf("project directory not found")}
+		}
+		reportsDir := filepath.Join(projectDir, "test-reports")
+		entries, err = os.ReadDir(reportsDir)
+		if err != nil {
+			return errMsg{err: fmt.Errorf("failed to read reports directory: %w", err)}
+		}
+		var reportPath string
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".xml") {
+				reportPath = filepath.Join(reportsDir, entry.Name())
+				break
+			}
+		}
+		if reportPath == "" {
+			return errMsg{err: fmt.Errorf("no test report found in %s", reportsDir)}
+		}
+		parser := testreport.NewParser()
+		result, err := parser.ParseFile(reportPath)
+		if err != nil {
+			return errMsg{err: fmt.Errorf("failed to parse test report: %w", err)}
+		}
+		return testResultMsg{result: result}
+	}
+}

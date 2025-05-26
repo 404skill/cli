@@ -88,10 +88,11 @@ func (p *ConfigTokenProvider) GetToken() (string, error) {
 		}
 
 		cfg := Config{
-			Username:    config.Username,
-			Password:    config.Password,
-			AccessToken: accessToken,
-			LastUpdated: time.Now(),
+			Username:           config.Username,
+			Password:           config.Password,
+			AccessToken:        accessToken,
+			LastUpdated:        time.Now(),
+			DownloadedProjects: config.DownloadedProjects,
 		}
 
 		if err := WriteConfig(cfg); err != nil {
