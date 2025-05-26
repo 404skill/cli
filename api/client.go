@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -19,6 +21,7 @@ type TokenProvider interface {
 type ClientInterface interface {
 	ListProjects(ctx context.Context) ([]Project, error)
 	InitProject(ctx context.Context, projectIdentifier string) (*ProjectTemplate, error)
+	BulkUpdateProfileTests(ctx context.Context, failed, passed []string) error
 }
 
 // Client represents the API client
@@ -123,4 +126,41 @@ func (c *Client) InitProject(ctx context.Context, projectIdentifier string) (*Pr
 	}
 
 	return &template, nil
+}
+
+type BulkUpdateRequest struct {
+	FailedTestNames []string `json:"failedTestNames"`
+	PassedTestNames []string `json:"passedTestNames"`
+}
+
+func (c *Client) BulkUpdateProfileTests(ctx context.Context, failed, passed []string) error {
+	token, err := c.tokenProvider.GetToken()
+	if err != nil {
+		return fmt.Errorf("failed to get token: %w", err)
+	}
+
+	reqBody := BulkUpdateRequest{
+		FailedTestNames: failed,
+		PassedTestNames: passed,
+	}
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", "http://localhost:8081/profile-tests/bulk-update", bytes.NewBuffer(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error: %s, %s", resp.Status, string(bodyBytes))
+	}
+	return nil
 }

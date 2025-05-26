@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,8 +15,11 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	btable "github.com/evertras/bubble-table/table"
 )
+
+var successStyle = headerStyle.Copy().Foreground(lipgloss.Color("2"))
 
 // spinnerFrames holds the frames for our animated spinner.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -24,6 +28,7 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 type TestComponent struct {
 	table               btable.Model
 	projects            []api.Project
+	client              api.ClientInterface
 	testing             bool
 	errorMsg            string
 	fileManager         FileManager
@@ -33,6 +38,9 @@ type TestComponent struct {
 	outputBuffer        []string
 	currentTestProject  *api.Project
 	currentTestCmdState *testCmdState
+	showingTestResults  bool
+	testResultsSummary  string
+	testResultsList     []string
 }
 
 // testResultMsg contains the parsed test results.
@@ -67,7 +75,7 @@ func (s *testCmdState) nextMsgCmd() tea.Cmd {
 }
 
 // NewTestComponent creates a new TestComponent.
-func NewTestComponent(fileManager FileManager, configManager ConfigManager) *TestComponent {
+func NewTestComponent(fileManager FileManager, configManager ConfigManager, client api.ClientInterface) *TestComponent {
 	rows := []btable.Row{}
 	table := btable.New(bubbleTableColumns).WithRows(rows)
 
@@ -77,6 +85,7 @@ func NewTestComponent(fileManager FileManager, configManager ConfigManager) *Tes
 		configManager: configManager,
 		help:          help.New(),
 		spinnerFrame:  spinnerFrames[0],
+		client:        client,
 	}
 }
 
@@ -86,6 +95,13 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if t.showingTestResults {
+			// Any key returns to project list
+			t.showingTestResults = false
+			t.testResultsSummary = ""
+			t.testResultsList = nil
+			return t, nil
+		}
 		if msg.String() == "enter" {
 			selected := t.table.HighlightedRow()
 			if selected.Data != nil {
@@ -130,20 +146,38 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	case testResultMsg:
 		if msg.err != nil {
 			t.errorMsg = msg.err.Error()
-		} else {
-			var b strings.Builder
-			b.WriteString(fmt.Sprintf("Test Suite: %s\n", msg.result.Suite.Name))
-			b.WriteString(fmt.Sprintf("Total Tests: %d\n", msg.result.Suite.Tests))
-			b.WriteString(fmt.Sprintf("Passed: %d\n", len(msg.result.PassedTests)))
-			b.WriteString(fmt.Sprintf("Failed: %d\n", len(msg.result.FailedTests)))
-			b.WriteString(fmt.Sprintf("Time: %.2fs\n\n", msg.result.Suite.Time))
-			if len(msg.result.FailedTests) > 0 {
-				b.WriteString("Failed Tests:\n")
-				for _, f := range msg.result.FailedTests {
-					b.WriteString(fmt.Sprintf("- %s\n", f))
-				}
+			return t, nil
+		}
+		// Build summary
+		t.showingTestResults = true
+		t.testing = false
+		testCount := msg.result.Suite.Tests
+		passedCount := len(msg.result.PassedTests)
+		failedCount := len(msg.result.FailedTests)
+		testTime := msg.result.Suite.Time
+		t.testResultsSummary = fmt.Sprintf(
+			"%s\n\nTotal: %d   Passed: %d   Failed: %d   Time: %.2fs",
+			headerStyle.Render("Test Results: "+msg.result.Suite.Name),
+			testCount, passedCount, failedCount, testTime,
+		)
+		// Build list of all tests with status and time
+		var list []string
+		for _, tr := range msg.result.Suite.Results {
+			status := ""
+			if tr.Passed {
+				status = successStyle.Render("[PASS]")
+			} else {
+				status = errorStyle.Render("[FAIL]")
 			}
-			t.errorMsg = b.String()
+			list = append(list, fmt.Sprintf("%s  %s  (%.2fs)", status, tr.Name, tr.Time))
+		}
+		t.testResultsList = list
+		// API call
+		err := t.client.BulkUpdateProfileTests(context.Background(), msg.result.FailedTests, msg.result.PassedTests)
+		if err != nil {
+			t.testResultsSummary += "\n\n[API update failed: " + err.Error() + "]"
+		} else {
+			t.testResultsSummary += "\n\n[API update successful!]"
 		}
 		return t, nil
 
@@ -180,6 +214,17 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 
 // View renders the TestComponent UI.
 func (t *TestComponent) View() string {
+	if t.showingTestResults {
+		var b strings.Builder
+		b.WriteString(t.testResultsSummary)
+		b.WriteString("\n\n")
+		for _, line := range t.testResultsList {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString("\nPress any key to return to the project list.")
+		return b.String()
+	}
 	if t.testing {
 		out := strings.Join(t.outputBuffer, "\n")
 		return fmt.Sprintf("%s\n\nRunning tests...\n%s\n%s\n\nPress q to quit",

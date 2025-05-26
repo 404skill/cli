@@ -188,7 +188,7 @@ func InitialModel(client api.ClientInterface) model {
 		loading:         false,
 		fileManager:     fileManager,
 		configManager:   configManager,
-		testComponent:   NewTestComponent(fileManager, configManager),
+		testComponent:   NewTestComponent(fileManager, configManager, client),
 	}
 }
 
