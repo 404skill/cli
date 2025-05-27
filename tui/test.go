@@ -273,9 +273,7 @@ func (t *TestComponent) runTests(project api.Project) tea.Cmd {
 
 		cmd := exec.Command("docker", "compose", "up", "--build", "--abort-on-container-exit")
 		cmd.Dir = projectDir
-		if err := cmd.Run(); err != nil {
-			return outputLineMsg{err: fmt.Errorf("docker compose up -d failed: %w", err), done: true}
-		}
+		cmd.Run()
 
 		return outputLineMsg{done: true}
 	}

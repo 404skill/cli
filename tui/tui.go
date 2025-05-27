@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"404skill-cli/api"
 	"404skill-cli/auth"
@@ -823,48 +822,6 @@ func fetchProjects(client api.ClientInterface) tea.Cmd {
 		}
 		return projects
 	}
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func truncateString(s string, maxLen int) string {
-	if utf8.RuneCountInString(s) <= maxLen {
-		return s
-	}
-	runes := []rune(s)
-	if maxLen > 3 {
-		return string(runes[:maxLen-3]) + "..."
-	}
-	return string(runes[:maxLen])
-}
-
-func fitTableColumns(projects []api.Project) []btable.Column {
-	headers := []string{"ID", "Name", "Language", "Difficulty", "Duration"}
-	maxLens := make([]int, len(headers))
-	for i, h := range headers {
-		maxLens[i] = utf8.RuneCountInString(h)
-	}
-	for _, p := range projects {
-		row := []string{
-			p.Name,
-			p.Language,
-			p.Difficulty,
-			fmt.Sprintf("%d min", p.EstimatedDurationInMinutes),
-		}
-		for i, cell := range row {
-			maxLens[i] = max(maxLens[i], utf8.RuneCountInString(cell))
-		}
-	}
-	cols := make([]btable.Column, len(headers))
-	for i, h := range headers {
-		cols[i] = btable.NewColumn(h, h, maxLens[i]+2) // +2 for padding
-	}
-	return cols
 }
 
 // --- Project Cloning ---
