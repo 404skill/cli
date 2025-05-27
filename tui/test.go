@@ -172,8 +172,8 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 			list = append(list, fmt.Sprintf("%s  %s  (%.2fs)", status, tr.Name, tr.Time))
 		}
 		t.testResultsList = list
-		// API call
-		err := t.client.BulkUpdateProfileTests(context.Background(), msg.result.FailedTests, msg.result.PassedTests)
+
+		err := t.client.BulkUpdateProfileTests(context.Background(), msg.result.FailedTests, msg.result.PassedTests, t.currentTestProject.ID)
 		if err != nil {
 			t.testResultsSummary += "\n\n[API update failed: " + err.Error() + "]"
 		} else {

@@ -21,7 +21,7 @@ type TokenProvider interface {
 type ClientInterface interface {
 	ListProjects(ctx context.Context) ([]Project, error)
 	InitProject(ctx context.Context, projectIdentifier string) (*ProjectTemplate, error)
-	BulkUpdateProfileTests(ctx context.Context, failed, passed []string) error
+	BulkUpdateProfileTests(ctx context.Context, failed, passed []string, projectID string) error
 }
 
 // Client represents the API client
@@ -129,11 +129,12 @@ func (c *Client) InitProject(ctx context.Context, projectIdentifier string) (*Pr
 }
 
 type BulkUpdateRequest struct {
+	ProjectId       string   `json:"projectId"`
 	FailedTestNames []string `json:"failedTestNames"`
 	PassedTestNames []string `json:"passedTestNames"`
 }
 
-func (c *Client) BulkUpdateProfileTests(ctx context.Context, failed, passed []string) error {
+func (c *Client) BulkUpdateProfileTests(ctx context.Context, failed, passed []string, projectID string) error {
 	token, err := c.tokenProvider.GetToken()
 	if err != nil {
 		return fmt.Errorf("failed to get token: %w", err)
@@ -142,6 +143,7 @@ func (c *Client) BulkUpdateProfileTests(ctx context.Context, failed, passed []st
 	reqBody := BulkUpdateRequest{
 		FailedTestNames: failed,
 		PassedTestNames: passed,
+		ProjectId:       projectID,
 	}
 	data, err := json.Marshal(reqBody)
 	if err != nil {
