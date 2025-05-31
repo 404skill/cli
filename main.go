@@ -4,6 +4,7 @@ import (
 	"404skill-cli/api"
 	"404skill-cli/config"
 	"404skill-cli/tui"
+	"fmt"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,7 +13,11 @@ import (
 func main() {
 	// Create API client with config token provider
 	tokenProvider := config.NewConfigTokenProvider()
-	client := api.NewClient(tokenProvider)
+	client, err := api.NewClient(tokenProvider)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating API client: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Initialize and run the TUI
 	p := tea.NewProgram(tui.InitialModel(client), tea.WithAltScreen())
