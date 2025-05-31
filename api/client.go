@@ -20,8 +20,8 @@ type TokenProvider interface {
 // ClientInterface defines the interface for API client operations
 type ClientInterface interface {
 	ListProjects(ctx context.Context) ([]Project, error)
-	InitProject(ctx context.Context, projectIdentifier string) (*ProjectTemplate, error)
 	BulkUpdateProfileTests(ctx context.Context, failed, passed []string, projectID string) error
+	InitializeProject(ctx context.Context, projectId string) error
 }
 
 // Client represents the API client
@@ -93,39 +93,39 @@ func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
 	return projects, nil
 }
 
-// InitProject initializes a new project from a template
-func (c *Client) InitProject(ctx context.Context, projectIdentifier string) (*ProjectTemplate, error) {
+type InitializeProjectRequest struct {
+	ProjectId string `json:"projectId"`
+}
+
+// Registers user has started a project
+func (c *Client) InitializeProject(ctx context.Context, projectId string) error {
 	token, err := c.tokenProvider.GetToken()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get token: %w", err)
+		return fmt.Errorf("failed to get token: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/projects/init", c.baseURL), nil)
+	reqBody := InitializeProjectRequest{
+		ProjectId: projectId,
+	}
+	data, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/profile-projects", c.baseURL), bytes.NewBuffer(data))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	q := req.URL.Query()
-	q.Add("project", projectIdentifier)
-	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+		return fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var template ProjectTemplate
-	if err := json.NewDecoder(resp.Body).Decode(&template); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &template, nil
+	return nil
 }
 
 type BulkUpdateRequest struct {

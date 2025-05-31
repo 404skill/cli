@@ -177,7 +177,7 @@ func InitialModel(client api.ClientInterface) model {
 	return model{
 		state:           state,
 		mainMenuIndex:   0,
-		mainMenuChoices: []string{"Init a project", "Test a project"},
+		mainMenuChoices: []string{"Download a project", "Test a project"},
 		loginInputs:     []textinput.Model{username, password},
 		loginFocusIdx:   0,
 		table:           table,
@@ -879,6 +879,10 @@ func (m model) cloneProject(projectName, language string) tea.Cmd {
 			return errMsg{err: fmt.Errorf("failed to start git clone: %w", err)}
 		}
 
+		if err := cmdCloneTest.Start(); err != nil {
+			return errMsg{err: fmt.Errorf("failed to start git clone: %w", err)}
+		}
+
 		// Read progress from stderr
 		scanner := bufio.NewScanner(stderr)
 		var cloneError string
@@ -951,6 +955,8 @@ func (m model) cloneProject(projectName, language string) tea.Cmd {
 			// Just log the error and continue
 			fmt.Printf("Warning: Failed to open file explorer: %v\n", err)
 		}
+
+		m.client.InitializeProject(context.Background(), projectID)
 
 		return cloneCompleteMsg{}
 	}
