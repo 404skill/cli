@@ -93,10 +93,6 @@ func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
 	return projects, nil
 }
 
-type InitializeProjectRequest struct {
-	ProjectId string `json:"projectId"`
-}
-
 // Registers user has started a project
 func (c *Client) InitializeProject(ctx context.Context, projectId string) error {
 	token, err := c.tokenProvider.GetToken()
@@ -104,11 +100,7 @@ func (c *Client) InitializeProject(ctx context.Context, projectId string) error 
 		return fmt.Errorf("failed to get token: %w", err)
 	}
 
-	reqBody := InitializeProjectRequest{
-		ProjectId: projectId,
-	}
-	data, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/profile-projects", c.baseURL), bytes.NewBuffer(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("http://localhost:8081/profile-projects?projectId=%s", projectId), nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

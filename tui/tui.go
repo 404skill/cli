@@ -956,7 +956,9 @@ func (m model) cloneProject(projectName, language string) tea.Cmd {
 			fmt.Printf("Warning: Failed to open file explorer: %v\n", err)
 		}
 
-		m.client.InitializeProject(context.Background(), projectID)
+		if err := m.client.InitializeProject(context.Background(), projectID); err != nil {
+			return errMsg{err: fmt.Errorf("failed to update profile project. error: %w", err)}
+		}
 
 		return cloneCompleteMsg{}
 	}
