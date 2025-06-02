@@ -8,12 +8,12 @@ import (
 )
 
 var (
-	enbeddedBaseURL string
+	embeddedBaseURL string
 )
 
 func GetBaseURL() (string, error) {
-	if enbeddedBaseURL != "" {
-		return enbeddedBaseURL, nil
+	if embeddedBaseURL != "" {
+		return embeddedBaseURL, nil
 	}
 	if err := godotenv.Load(); err != nil {
 		return "", fmt.Errorf("failed to load environment: %w", err)
