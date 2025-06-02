@@ -42,7 +42,10 @@ func TestClient_ListProjects(t *testing.T) {
 					{ID: "1", Name: "Project One"},
 					{ID: "2", Name: "Project Two"},
 				}
-				json.NewEncoder(w).Encode(projects)
+				err := json.NewEncoder(w).Encode(projects)
+				if err != nil {
+					t.Errorf("failed to encode projects: %v", err)
+				}
 			},
 			wantErr: false,
 			wantProjects: []Project{
