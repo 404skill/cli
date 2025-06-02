@@ -57,3 +57,91 @@ release:
     ---
 
     Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+
+
+chocolateys:
+  - # Your app's package name.
+    # The value may not contain spaces or character that are not valid for a
+    # URL.
+    # If you want a good separator for words, use '-', not  '.'.
+    #
+    # Default: the project name.
+    name: 404skill
+
+    # Your Chocolatey package's source URL.
+    # It points at the location of where someone can find the packaging files
+    # for the package.
+    package_source_url: https://github.com/404skill/cli
+
+    # Your app's owner.
+    # It basically means you.
+    owners: 404Skill
+
+    # Your app's authors (probably you).
+    authors: Eliran Turgeman
+
+    # Your app's project url.
+    # It is a required field.
+    project_url: https://github.com/404skill/cli
+
+    # App's icon.
+    icon_url: "https://example.org/icon.png"
+
+    # Your app's copyright details.
+    #
+    # Templates: allowed.
+    copyright: 2025 404Skill
+
+    # App's license information url.
+    license_url: https://github.com/404skill/cli
+
+    # Your apps's require license acceptance:
+    # Specify whether the client must prompt the consumer to accept the package
+    # license before installing.
+    require_license_acceptance: false
+
+    # Your app's source url.
+    project_source_url: https://github.com/404skill/cli
+
+    # Your app's documentation url.
+    docs_url: https://github.com/404skill/cli
+
+    # App's bugtracker url.
+    bug_tracker_url: https://github.com/404skill/cli
+
+    # Your app's tag list.
+    tags: ""
+
+    # Your app's summary:
+    summary: 404Skill CLI
+
+    # This the description of your Chocolatey package.
+    # Supports markdown.
+    description: |
+      {{ .ProjectName }} installer package.
+
+    # Your app's release notes.
+    # A description of the changes made in this release of the package.
+    # Supports markdown. To prevent the need to continually update this field,
+    # providing a URL to an external list of Release Notes is perfectly
+    # acceptable.
+    release_notes: "https://github.com/404skill/cli/releases/tag/v{{ .Version }}"
+
+    # App's dependencies
+    # The version is not required.
+    dependencies:
+      - id: nfpm
+        version: 2.20.0
+
+    # The API key that should be used to push to the Chocolatey repository.
+    #
+    # WARNING: do not expose your api key in the configuration file!
+    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
+
+    # The source repository that will push the package to.
+    source_repo: "https://push.chocolatey.org/"
+
+    # Setting this will prevent GoReleaser to actually try to push the package
+    # to Chocolatey repository, leaving the responsibility of publishing it to
+    # the user.
+    skip_publish: false
