@@ -7,7 +7,15 @@ import (
 	"github.com/joho/godotenv"
 )
 
+var (
+	enbeddedEnv     string
+	enbeddedBaseURL string
+)
+
 func GetBaseURL() (string, error) {
+	if enbeddedEnv != "" {
+		return enbeddedBaseURL, nil
+	}
 	if err := godotenv.Load(); err != nil {
 		return "", fmt.Errorf("failed to load environment: %w", err)
 	}

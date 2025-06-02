@@ -93,3 +93,10 @@ var (
 			Bold(true).
 			Padding(0, 1)
 )
+
+// TODO: USE THIS TO SHOW VERSION INFO FOR THE USER (https://goreleaser.com/cookbooks/using-main.version/?h=ldflag)
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)

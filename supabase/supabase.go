@@ -8,7 +8,17 @@ import (
 	"github.com/supabase-community/supabase-go"
 )
 
+// These two vars are empty by default. We will override them via -ldflags in production builds.
+var (
+	embeddedSupabaseURL string
+	embeddedSupabaseKey string
+)
+
 func NewSupabaseClient() (*supabase.Client, error) {
+	if embeddedSupabaseURL != "" && embeddedSupabaseKey != "" {
+		return supabase.NewClient(embeddedSupabaseURL, embeddedSupabaseKey, nil)
+	}
+
 	if err := godotenv.Load(); err != nil {
 		return nil, fmt.Errorf("failed to load environment: %w", err)
 	}

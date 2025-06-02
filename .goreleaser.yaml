@@ -22,6 +22,10 @@ builds:
       - linux
       - windows
       - darwin
+    ldflags:
+     - "-X 404skill-cli/supabase.embeddedSupabaseURL={{ .Env.SUPABASE_URL }}" 
+     - "-X 404skill-cli/supabase.embeddedSupabaseKey={{ .Env.SUPABASE_KEY }}"
+     - "-X 404skill-cli/config.embeddedBaseURL={{ .Env.BASE_URL_DEV }}"
     binary: 404skill
 
 archives:

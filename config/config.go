@@ -75,7 +75,7 @@ func (p *ConfigTokenProvider) GetToken() (string, error) {
 		return "", err
 	}
 
-	if IsTokenExpired(config.LastUpdated) {
+	if IsTokenExpired(config.LastUpdated) || config.AccessToken == "" {
 		client, err := supabase.NewSupabaseClient()
 		if err != nil {
 			return "", fmt.Errorf("failed to create supabase client: %w", err)
