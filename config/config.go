@@ -57,7 +57,7 @@ func WriteConfig(config Config) error {
 }
 
 func IsTokenExpired(lastUpdated time.Time) bool {
-	return time.Since(lastUpdated) >= 1*time.Hour
+	return time.Since(lastUpdated) >= 24*time.Hour
 }
 
 // ConfigTokenProvider implements the TokenProvider interface

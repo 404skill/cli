@@ -127,12 +127,6 @@ chocolateys:
     # acceptable.
     release_notes: "https://github.com/404skill/cli/releases/tag/v{{ .Version }}"
 
-    # App's dependencies
-    # The version is not required.
-    dependencies:
-      - id: nfpm
-        version: 2.20.0
-
     # The API key that should be used to push to the Chocolatey repository.
     #
     # WARNING: do not expose your api key in the configuration file!
