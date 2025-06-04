@@ -1,0 +1,68 @@
+version: '3'
+
+vars:
+  # Which part of semver to bump: patch (default), minor, or major
+  bump: patch
+  bump_description: upgrade version
+
+tasks:
+  tag:
+    desc: "Create a new semver Git tag by bumping patch (default), minor, or major. Usage: task tag / task tag bump=minor / task tag bump=major"
+    cmds:
+      - |
+        # Get the latest tag (strip leading 'v' if present)
+        currentTag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+        currentTag=${currentTag#v}
+
+        # Split into MAJOR, MINOR, PATCH
+        IFS=. read -r major minor patch <<< "$currentTag"
+
+        # Bump the requested segment
+        case "{{.bump}}" in
+          major)
+            major=$((major + 1))
+            minor=0
+            patch=0
+            ;;
+          minor)
+            minor=$((minor + 1))
+            patch=0
+            ;;
+          patch)
+            patch=$((patch + 1))
+            ;;
+          *)
+            echo "Invalid bump type: {{.bump}}. Use patch, minor, or major."
+            exit 1
+            ;;
+        esac
+
+        # Form the new tag and create it
+        newTag="v${major}.${minor}.${patch}"
+        git tag -a "${newTag}" -m {{.bump_description}}
+        git push origin ${newTag}
+        echo "Created Git tag ${newTag}"
+    silent: true
+
+  release:
+    desc: "Bump version (via 'tag'), then run goreleaser"
+    deps:
+      - tag
+    cmds:
+      - goreleaser release --clean
+
+  test:
+    desc: "Run all Go tests"
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: "Run golangci-lint with .golangci.yml"
+    cmds:
+      - golangci-lint run --config .golangci.yml
+
+  check:
+    desc: "Run tests and linters"
+    deps:
+      - test
+      - lint
