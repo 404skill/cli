@@ -107,18 +107,20 @@ chocolateys:
     docs_url: https://github.com/404skill/cli
 
     # App's bugtracker url.
-    bug_tracker_url: https://github.com/404skill/cli
+    bug_tracker_url: https://github.com/404skill/cli/issues
 
     # Your app's tag list.
-    tags: ""
+    # must be non empty
+    tags: "cli, 404skill"
 
     # Your app's summary:
     summary: 404Skill CLI
 
     # This the description of your Chocolatey package.
     # Supports markdown.
+    # must be above 30 chars
     description: |
-      {{ .ProjectName }} installer package.
+      {{ .ProjectName }} installer package. Utility for https://404skill.github.io/#/
 
     # Your app's release notes.
     # A description of the changes made in this release of the package.
