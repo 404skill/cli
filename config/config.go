@@ -1,9 +1,6 @@
 package config
 
 import (
-	"404skill-cli/auth"
-	"404skill-cli/supabase"
-	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -37,8 +34,9 @@ type Config struct {
 	DownloadedProjects map[string]bool `yaml:"downloaded_projects"`
 }
 
-// ReadConfig reads the configuration from the config file
-func ReadConfig() (Config, error) {
+// readConfig reads the configuration from the config file
+// This is private - use ConfigManager methods instead
+func readConfig() (Config, error) {
 	var config Config
 	data, err := ioutil.ReadFile(ConfigFilePath)
 	if err != nil {
@@ -48,7 +46,9 @@ func ReadConfig() (Config, error) {
 	return config, err
 }
 
-func WriteConfig(config Config) error {
+// writeConfig writes the configuration to the config file
+// This is private - use ConfigManager methods instead
+func writeConfig(config Config) error {
 	data, err := yaml.Marshal(&config)
 	if err != nil {
 		return err
@@ -56,51 +56,7 @@ func WriteConfig(config Config) error {
 	return ioutil.WriteFile(ConfigFilePath, data, 0600)
 }
 
-func IsTokenExpired(lastUpdated time.Time) bool {
+// isTokenExpired checks if a token has expired (24 hour expiry)
+func isTokenExpired(lastUpdated time.Time) bool {
 	return time.Since(lastUpdated) >= 24*time.Hour
-}
-
-// ConfigTokenProvider implements the TokenProvider interface
-type ConfigTokenProvider struct{}
-
-// NewConfigTokenProvider creates a new ConfigTokenProvider
-func NewConfigTokenProvider() *ConfigTokenProvider {
-	return &ConfigTokenProvider{}
-}
-
-// GetToken implements the TokenProvider interface
-func (p *ConfigTokenProvider) GetToken() (string, error) {
-	config, err := ReadConfig()
-	if err != nil {
-		return "", err
-	}
-
-	if IsTokenExpired(config.LastUpdated) || config.AccessToken == "" {
-		client, err := supabase.NewSupabaseClient()
-		if err != nil {
-			return "", fmt.Errorf("failed to create supabase client: %w", err)
-		}
-
-		authProvider := auth.NewSupabaseAuth(client)
-		accessToken, err := authProvider.SignIn(context.Background(), config.Username, config.Password)
-		if err != nil {
-			return "", fmt.Errorf("failed to refresh token: %w", err)
-		}
-
-		cfg := Config{
-			Username:           config.Username,
-			Password:           config.Password,
-			AccessToken:        accessToken,
-			LastUpdated:        time.Now(),
-			DownloadedProjects: config.DownloadedProjects,
-		}
-
-		if err := WriteConfig(cfg); err != nil {
-			return "", fmt.Errorf("failed to save new token: %w", err)
-		}
-
-		return accessToken, nil
-	}
-
-	return config.AccessToken, nil
 }

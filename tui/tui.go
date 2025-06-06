@@ -16,13 +16,12 @@ import (
 	"404skill-cli/auth"
 	"404skill-cli/config"
 	"404skill-cli/supabase"
+	"404skill-cli/tui/login"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	btable "github.com/evertras/bubble-table/table"
 )
 
@@ -55,7 +54,7 @@ type model struct {
 	selectedAction  mainMenuChoice
 
 	// Components
-	loginComponent    *LoginComponent
+	loginComponent    *login.Component
 	projectComponent  *ProjectComponent
 	languageComponent *LanguageComponent
 	testComponent     *TestComponent
@@ -69,12 +68,6 @@ type model struct {
 	ready    bool
 	quitting bool
 	errorMsg string
-
-	// Login
-	loginInputs   []textinput.Model
-	loginFocusIdx int
-	loginError    string
-	loggingIn     bool
 
 	// Projects
 	table        btable.Model
@@ -148,29 +141,22 @@ var keys = keyMap{
 
 // --- Initial Model ---
 func InitialModel(client api.ClientInterface) model {
-	// Login inputs
-	username := textinput.New()
-	username.Placeholder = "Username"
-	username.Focus()
-	username.CharLimit = 64
-	username.Width = 32
-
-	password := textinput.New()
-	password.Placeholder = "Password"
-	password.EchoMode = textinput.EchoPassword
-	password.EchoCharacter = '•'
-	password.CharLimit = 64
-	password.Width = 32
-
 	rows := []btable.Row{}
 	table := btable.New(bubbleTableColumns).WithRows(rows)
 
 	fileManager := NewDefaultFileManager()
 	configManager := config.NewConfigManager()
 
+	// Create auth provider for dependency injection
+	supabaseClient, err := supabase.NewSupabaseClient()
+	if err != nil {
+		// Handle error appropriately - for now we'll continue with nil
+		// In production, you might want to handle this differently
+	}
+	authProvider := auth.NewSupabaseAuth(supabaseClient)
+
 	state := stateLogin
-	cfg, err := config.ReadConfig()
-	if err == nil && cfg.Username != "" && cfg.Password != "" {
+	if configManager.HasCredentials() {
 		state = stateRefreshingToken
 	}
 
@@ -178,8 +164,7 @@ func InitialModel(client api.ClientInterface) model {
 		state:           state,
 		mainMenuIndex:   0,
 		mainMenuChoices: []string{"Download a project", "Test a project"},
-		loginInputs:     []textinput.Model{username, password},
-		loginFocusIdx:   0,
+		loginComponent:  login.New(authProvider, configManager),
 		table:           table,
 		help:            help.New(),
 		client:          client,
@@ -193,8 +178,7 @@ func InitialModel(client api.ClientInterface) model {
 
 // --- State Machine ---
 func (m model) Init() tea.Cmd {
-	cfg, err := config.ReadConfig()
-	if err == nil && cfg.Username != "" && cfg.Password != "" {
+	if m.configManager.HasCredentials() {
 		return refreshTokenCmd()
 	}
 	m.state = stateLogin
@@ -208,7 +192,8 @@ type tokenRefreshMsg struct {
 
 func refreshTokenCmd() tea.Cmd {
 	return func() tea.Msg {
-		_, err := config.NewConfigTokenProvider().GetToken()
+		configManager := config.NewConfigManager()
+		_, err := configManager.GetToken()
 		return tokenRefreshMsg{err: err}
 	}
 }
@@ -225,7 +210,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			} else {
 				m.state = stateLogin
-				m.loginError = "Session expired. Please log in again."
+				m.loginComponent.SetError("Session expired. Please log in again.")
 				return m, nil
 			}
 		}
@@ -260,16 +245,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.quitting = true
 				return m, tea.Quit
 			}
-		case string:
-			if msg == "login-success" {
-				m.state = stateMainMenu
-				m.loginError = ""
-				m.loggingIn = false
-			}
+		case login.LoginSuccessMsg:
+			m.state = stateMainMenu
+			return m, nil
+		case login.LoginErrorMsg:
+			m.state = stateLogin
+			m.loginComponent.SetError(msg.Error)
+			return m, nil
 		case errMsg:
 			m.state = stateLogin
-			m.loginError = msg.err.Error()
-			m.loggingIn = false
+			m.loginComponent.SetError(msg.err.Error())
+			return m, nil
 		}
 	case stateLogin:
 		switch msg := msg.(type) {
@@ -278,54 +264,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c", "q":
 				m.quitting = true
 				return m, tea.Quit
-			case "tab", "shift+tab":
-				if msg.String() == "shift+tab" {
-					m.loginFocusIdx--
-				} else {
-					m.loginFocusIdx++
-				}
-				if m.loginFocusIdx > 1 {
-					m.loginFocusIdx = 0
-				} else if m.loginFocusIdx < 0 {
-					m.loginFocusIdx = 1
-				}
-				for i := 0; i < len(m.loginInputs); i++ {
-					if i == m.loginFocusIdx {
-						m.loginInputs[i].Focus()
-					} else {
-						m.loginInputs[i].Blur()
-					}
-				}
-				return m, nil
-			case "enter":
-				if m.loginFocusIdx == 1 {
-					m.loggingIn = true
-					m.loginError = ""
-					return m, m.tryLogin()
-				}
-				m.loginFocusIdx = 1
-				for i := 0; i < len(m.loginInputs); i++ {
-					if i == m.loginFocusIdx {
-						m.loginInputs[i].Focus()
-					} else {
-						m.loginInputs[i].Blur()
-					}
-				}
-				return m, nil
 			default:
-				// Pass all other keys to the focused input only
-				m.loginInputs[m.loginFocusIdx], cmd = m.loginInputs[m.loginFocusIdx].Update(msg)
+				// Delegate all login input handling to the login component
+				updatedComponent, cmd := m.loginComponent.Update(msg)
+				m.loginComponent = updatedComponent
 				return m, cmd
 			}
-		case string:
-			if msg == "login-success" {
-				m.state = stateMainMenu
-				m.loginError = ""
-				m.loggingIn = false
-			}
+		case login.LoginSuccessMsg:
+			m.state = stateMainMenu
+			return m, nil
+		case login.LoginErrorMsg:
+			m.loginComponent.SetError(msg.Error)
+			return m, nil
 		case errMsg:
-			m.loginError = msg.err.Error()
-			m.loggingIn = false
+			m.loginComponent.SetError(msg.err.Error())
+			return m, nil
 		}
 	case stateProjectList:
 		switch msg := msg.(type) {
@@ -343,76 +296,73 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selectedRow := m.table.HighlightedRow()
 				if selectedRow.Data != nil {
 					// Check if project is already downloaded
-					cfg, err := config.ReadConfig()
-					if err == nil && cfg.DownloadedProjects != nil {
-						if projectID, ok := selectedRow.Data["id"].(string); ok && cfg.DownloadedProjects[projectID] {
-							// Try to open the project directory
-							homeDir, err := os.UserHomeDir()
-							if err != nil {
-								m.errorMsg = "Project already downloaded but couldn't determine home directory."
-								return m, nil
-							}
-
-							// Find the project in our list to get its name
-							var projectName string
-							for _, p := range m.projects {
-								if p.ID == projectID {
-									projectName = p.Name
-									break
-								}
-							}
-
-							if projectName == "" {
-								m.errorMsg = "Project already downloaded but couldn't find project details."
-								return m, nil
-							}
-
-							// Format project name for directory
-							repoName := strings.ToLower(strings.ReplaceAll(projectName, " ", "_"))
-							projectsDir := filepath.Join(homeDir, "404skill_projects")
-
-							// Try to find the project directory
-							entries, err := os.ReadDir(projectsDir)
-							if err != nil {
-								m.errorMsg = "Project already downloaded but couldn't access projects directory."
-								return m, nil
-							}
-
-							var projectDir string
-							for _, entry := range entries {
-								if entry.IsDir() && strings.HasPrefix(entry.Name(), repoName) {
-									projectDir = filepath.Join(projectsDir, entry.Name())
-									break
-								}
-							}
-
-							if projectDir == "" {
-								// Find the project and its languages
-								for _, p := range m.projects {
-									if p.ID == projectID {
-										m.confirmRedownloadProject = &p
-										m.languages = strings.Split(p.Language, ",")
-										for i := range m.languages {
-											m.languages[i] = strings.TrimSpace(m.languages[i])
-										}
-										m.languageIndex = 0
-										m.state = stateConfirmRedownload
-										return m, nil
-									}
-								}
-								m.errorMsg = "Project was downloaded but directory not found. It might have been moved or deleted."
-								return m, nil
-							}
-
-							// Try to open the directory
-							if err := openFileExplorer(projectDir); err != nil {
-								m.errorMsg = fmt.Sprintf("Project was downloaded but couldn't open directory: %v", err)
-								return m, nil
-							}
-
-							m.errorMsg = "Project already downloaded. Opening project directory..."
+					if projectID, ok := selectedRow.Data["id"].(string); ok && m.configManager.IsProjectDownloaded(projectID) {
+						// Try to open the project directory
+						homeDir, err := os.UserHomeDir()
+						if err != nil {
+							m.errorMsg = "Project already downloaded but couldn't determine home directory."
 							return m, nil
 						}
+
+						// Find the project in our list to get its name
+						var projectName string
+						for _, p := range m.projects {
+							if p.ID == projectID {
+								projectName = p.Name
+								break
+							}
+						}
+
+						if projectName == "" {
+							m.errorMsg = "Project already downloaded but couldn't find project details."
+							return m, nil
+						}
+
+						// Format project name for directory
+						repoName := strings.ToLower(strings.ReplaceAll(projectName, " ", "_"))
+						projectsDir := filepath.Join(homeDir, "404skill_projects")
+
+						// Try to find the project directory
+						entries, err := os.ReadDir(projectsDir)
+						if err != nil {
+							m.errorMsg = "Project already downloaded but couldn't access projects directory."
+							return m, nil
+						}
+
+						var projectDir string
+						for _, entry := range entries {
+							if entry.IsDir() && strings.HasPrefix(entry.Name(), repoName) {
+								projectDir = filepath.Join(projectsDir, entry.Name())
+								break
+							}
+						}
+
+						if projectDir == "" {
+							// Find the project and its languages
+							for _, p := range m.projects {
+								if p.ID == projectID {
+									m.confirmRedownloadProject = &p
+									m.languages = strings.Split(p.Language, ",")
+									for i := range m.languages {
+										m.languages[i] = strings.TrimSpace(m.languages[i])
+									}
+									m.languageIndex = 0
+									m.state = stateConfirmRedownload
+									return m, nil
+								}
+							}
+							m.errorMsg = "Project was downloaded but directory not found. It might have been moved or deleted."
+							return m, nil
+						}
+
+						// Try to open the directory
+						if err := openFileExplorer(projectDir); err != nil {
+							m.errorMsg = fmt.Sprintf("Project was downloaded but couldn't open directory: %v", err)
+							return m, nil
+						}
+
+						m.errorMsg = "Project already downloaded. Opening project directory..."
+						return m, nil
 					}
 
 					// Find the selected project
@@ -442,11 +392,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			rows := []btable.Row{}
 
 			// Get downloaded projects from config
-			cfg, _ := config.ReadConfig()
-			downloadedProjects := make(map[string]bool)
-			if cfg.DownloadedProjects != nil {
-				downloadedProjects = cfg.DownloadedProjects
-			}
+			downloadedProjects := m.configManager.GetDownloadedProjects()
 
 			for _, p := range msg {
 				status := ""
@@ -657,42 +603,7 @@ func (m model) View() string {
 		menu += helpStyle.Render("\nUse ↑/↓ or k/j to move, Enter to select, q to quit.")
 		return menu
 	case stateLogin:
-		inputs := []string{}
-		for i := range m.loginInputs {
-			input := m.loginInputs[i].View()
-			// Add a green blinking cursor to the focused input
-			if i == m.loginFocusIdx {
-				input += lipgloss.NewStyle().Foreground(accent).Render("█")
-			}
-			inputs = append(inputs, input)
-		}
-		loginBox := loginBoxStyle.Render(
-			"Username: " + inputs[0] + "\n" +
-				"Password: " + inputs[1] + "\n" +
-				strings.Repeat(" ", 2) + "[Tab] Switch  [Enter] Submit  [q] Quit" +
-				func() string {
-					if m.loginError != "" {
-						return "\n" + errorStyle.Render(m.loginError)
-					}
-					if m.loggingIn {
-						return "\n" + headerStyle.Render("Logging in...")
-					}
-					return ""
-				}(),
-		)
-		// Center the login box
-		termWidth, termHeight := 80, 24
-		if m.ready && m.viewport.Width > 0 && m.viewport.Height > 0 {
-			termWidth, termHeight = m.viewport.Width, m.viewport.Height
-		}
-		boxLines := strings.Split(loginBox, "\n")
-		boxHeight := len(boxLines)
-		padTop := (termHeight - boxHeight) / 2
-		padLeft := (termWidth - loginBoxStyle.GetWidth()) / 2
-		centered := strings.Repeat("\n", padTop) +
-			asciiArt + "\n\n" +
-			strings.Repeat(" ", padLeft) + strings.Join(boxLines, "\n"+strings.Repeat(" ", padLeft))
-		return centered
+		return m.loginComponent.View()
 	case stateProjectList:
 		if m.loading {
 			return headerStyle.Render("\nLoading projects...")
@@ -768,46 +679,6 @@ func (m model) View() string {
 		return m.testComponent.View()
 	}
 	return ""
-}
-
-// --- Login Logic ---
-func (m model) tryLogin() tea.Cmd {
-	return func() tea.Msg {
-		username := m.loginInputs[0].Value()
-		password := m.loginInputs[1].Value()
-		client, err := supabase.NewSupabaseClient()
-		if err != nil {
-			return errMsg{err: fmt.Errorf("failed to create supabase client: %w", err)}
-		}
-		authProvider := auth.NewSupabaseAuth(client)
-		token, err := authProvider.SignIn(context.Background(), username, password)
-		if err != nil {
-			return errMsg{err: fmt.Errorf("invalid credentials: %w", err)}
-		}
-
-		// Read existing config to preserve DownloadedProjects
-		cfg, err := config.ReadConfig()
-		if err != nil {
-			// If config doesn't exist, create new one
-			cfg = config.Config{}
-		}
-
-		// Update only the auth-related fields
-		cfg.Username = username
-		cfg.Password = password
-		cfg.AccessToken = token
-		cfg.LastUpdated = time.Now()
-
-		// Ensure DownloadedProjects map exists
-		if cfg.DownloadedProjects == nil {
-			cfg.DownloadedProjects = make(map[string]bool)
-		}
-
-		if err := config.WriteConfig(cfg); err != nil {
-			return errMsg{err: fmt.Errorf("failed to write config: %w", err)}
-		}
-		return "login-success"
-	}
 }
 
 // --- Fetch Projects ---
@@ -923,16 +794,6 @@ func (m model) cloneProject(projectName, language string) tea.Cmd {
 		}
 
 		// Update config with downloaded project
-		cfg, err := config.ReadConfig()
-		if err != nil {
-			return errMsg{err: fmt.Errorf("failed to read config: %w", err)}
-		}
-
-		// Add project to downloaded projects list
-		if cfg.DownloadedProjects == nil {
-			cfg.DownloadedProjects = make(map[string]bool)
-		}
-
 		// Get the project ID based on the current state
 		var projectID string
 		if m.state == stateConfirmRedownload && m.confirmRedownloadProject != nil {
@@ -943,9 +804,7 @@ func (m model) cloneProject(projectName, language string) tea.Cmd {
 			return errMsg{err: fmt.Errorf("no project selected for download")}
 		}
 
-		cfg.DownloadedProjects[projectID] = true
-
-		if err := config.WriteConfig(cfg); err != nil {
+		if err := m.configManager.UpdateDownloadedProject(projectID); err != nil {
 			return errMsg{err: fmt.Errorf("failed to update config: %w", err)}
 		}
 

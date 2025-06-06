@@ -2,7 +2,6 @@ package tui
 
 import (
 	"404skill-cli/api"
-	"404skill-cli/config"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,28 +15,35 @@ import (
 
 // ProjectComponent handles the project list and selection
 type ProjectComponent struct {
-	table        btable.Model
-	viewport     viewport.Model
-	help         help.Model
-	client       api.ClientInterface
-	projects     []api.Project
-	selected     int
-	loading      bool
-	errorMsg     string
-	selectedInfo string
-	ready        bool
+	table         btable.Model
+	viewport      viewport.Model
+	help          help.Model
+	client        api.ClientInterface
+	configManager ConfigManager
+	projects      []api.Project
+	selected      int
+	loading       bool
+	errorMsg      string
+	selectedInfo  string
+	ready         bool
 }
 
 // NewProjectComponent creates a new project component
-func NewProjectComponent(client api.ClientInterface) *ProjectComponent {
+func NewProjectComponent(client api.ClientInterface, configManager ConfigManager) *ProjectComponent {
 	rows := []btable.Row{}
 	table := btable.New(bubbleTableColumns).WithRows(rows)
 
 	return &ProjectComponent{
-		table:  table,
-		help:   help.New(),
-		client: client,
+		table:         table,
+		help:          help.New(),
+		client:        client,
+		configManager: configManager,
 	}
+}
+
+// Init initializes the project component
+func (p *ProjectComponent) Init() tea.Cmd {
+	return nil
 }
 
 // Update handles messages for the project component
@@ -51,63 +57,60 @@ func (p *ProjectComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 			selectedRow := p.table.HighlightedRow()
 			if selectedRow.Data != nil {
 				// Check if project is already downloaded
-				cfg, err := config.ReadConfig()
-				if err == nil && cfg.DownloadedProjects != nil {
-					if projectID, ok := selectedRow.Data["id"].(string); ok && cfg.DownloadedProjects[projectID] {
-						// Try to open the project directory
-						homeDir, err := os.UserHomeDir()
-						if err != nil {
-							p.errorMsg = "Project already downloaded but couldn't determine home directory."
-							return p, nil
-						}
-
-						// Find the project in our list to get its name
-						var projectName string
-						for _, proj := range p.projects {
-							if proj.ID == projectID {
-								projectName = proj.Name
-								break
-							}
-						}
-
-						if projectName == "" {
-							p.errorMsg = "Project already downloaded but couldn't find project details."
-							return p, nil
-						}
-
-						// Format project name for directory
-						repoName := strings.ToLower(strings.ReplaceAll(projectName, " ", "_"))
-						projectsDir := filepath.Join(homeDir, "404skill_projects")
-
-						// Try to find the project directory
-						entries, err := os.ReadDir(projectsDir)
-						if err != nil {
-							p.errorMsg = "Project already downloaded but couldn't access projects directory."
-							return p, nil
-						}
-
-						var projectDir string
-						for _, entry := range entries {
-							if entry.IsDir() && strings.HasPrefix(entry.Name(), repoName) {
-								projectDir = filepath.Join(projectsDir, entry.Name())
-								break
-							}
-						}
-
-						if projectDir == "" {
-							p.errorMsg = "Project was downloaded but directory not found. It might have been moved or deleted."
-							return p, nil
-						}
-
-						// Try to open the directory
-						if err := openFileExplorer(projectDir); err != nil {
-							p.errorMsg = fmt.Sprintf("Project was downloaded but couldn't open directory: %v", err)
-							return p, nil
-						}
-
-						p.errorMsg = "Project already downloaded. Opening project directory..."
+				if projectID, ok := selectedRow.Data["id"].(string); ok && p.configManager.IsProjectDownloaded(projectID) {
+					// Try to open the project directory
+					homeDir, err := os.UserHomeDir()
+					if err != nil {
+						p.errorMsg = "Project already downloaded but couldn't determine home directory."
 						return p, nil
 					}
+
+					// Find the project in our list to get its name
+					var projectName string
+					for _, proj := range p.projects {
+						if proj.ID == projectID {
+							projectName = proj.Name
+							break
+						}
+					}
+
+					if projectName == "" {
+						p.errorMsg = "Project already downloaded but couldn't find project details."
+						return p, nil
+					}
+
+					// Format project name for directory
+					repoName := strings.ToLower(strings.ReplaceAll(projectName, " ", "_"))
+					projectsDir := filepath.Join(homeDir, "404skill_projects")
+
+					// Try to find the project directory
+					entries, err := os.ReadDir(projectsDir)
+					if err != nil {
+						p.errorMsg = "Project already downloaded but couldn't access projects directory."
+						return p, nil
+					}
+
+					var projectDir string
+					for _, entry := range entries {
+						if entry.IsDir() && strings.HasPrefix(entry.Name(), repoName) {
+							projectDir = filepath.Join(projectsDir, entry.Name())
+							break
+						}
+					}
+
+					if projectDir == "" {
+						p.errorMsg = "Project was downloaded but directory not found. It might have been moved or deleted."
+						return p, nil
+					}
+
+					// Try to open the directory
+					if err := openFileExplorer(projectDir); err != nil {
+						p.errorMsg = fmt.Sprintf("Project was downloaded but couldn't open directory: %v", err)
+						return p, nil
+					}
+
+					p.errorMsg = "Project already downloaded. Opening project directory..."
+					return p, nil
 				}
 
 				// Find the selected project
@@ -131,11 +134,7 @@ func (p *ProjectComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 		rows := []btable.Row{}
 
 		// Get downloaded projects from config
-		cfg, _ := config.ReadConfig()
-		downloadedProjects := make(map[string]bool)
-		if cfg.DownloadedProjects != nil {
-			downloadedProjects = cfg.DownloadedProjects
-		}
+		downloadedProjects := p.configManager.GetDownloadedProjects()
 
 		for _, proj := range msg {
 			status := ""

@@ -11,9 +11,9 @@ import (
 )
 
 func main() {
-	// Create API client with config token provider
-	tokenProvider := config.NewConfigTokenProvider()
-	client, err := api.NewClient(tokenProvider)
+	// Create API client with config manager as token provider
+	configManager := config.NewConfigManager()
+	client, err := api.NewClient(configManager)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating API client: %v\n", err)
 		os.Exit(1)

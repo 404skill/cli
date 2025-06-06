@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"404skill-cli/tui/login"
+
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -35,7 +37,7 @@ type Model struct {
 	selectedAction  MainMenuChoice
 
 	// Components
-	loginComponent    *LoginComponent
+	loginComponent    *login.Component
 	projectComponent  *ProjectComponent
 	languageComponent *LanguageComponent
 	testComponent     *TestComponent
@@ -49,6 +51,7 @@ type Model struct {
 
 // Component represents a UI component that can be updated and rendered
 type Component interface {
+	Init() tea.Cmd
 	Update(msg tea.Msg) (Component, tea.Cmd)
 	View() string
 }
@@ -75,6 +78,8 @@ type FileManager interface {
 
 // ConfigManager handles configuration operations
 type ConfigManager interface {
+	HasCredentials() bool
+	GetDownloadedProjects() map[string]bool
 	UpdateDownloadedProject(projectID string) error
 	IsProjectDownloaded(projectID string) bool
 }

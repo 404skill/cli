@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"404skill-cli/api"
-	"404skill-cli/config"
 	"404skill-cli/testreport"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -89,6 +88,11 @@ func NewTestComponent(fileManager FileManager, configManager ConfigManager, clie
 	}
 }
 
+// Init initializes the test component
+func (t *TestComponent) Init() tea.Cmd {
+	return nil
+}
+
 // Update handles incoming messages and updates state.
 func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	var cmd tea.Cmd
@@ -124,13 +128,8 @@ func (t *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	case []api.Project:
 		t.projects = msg
 		rows := []btable.Row{}
-		cfg, err := config.ReadConfig()
-		if err != nil {
-			t.errorMsg = fmt.Sprintf("Failed to read config: %v", err)
-			return t, nil
-		}
 		for _, p := range msg {
-			if cfg.DownloadedProjects != nil && cfg.DownloadedProjects[p.ID] {
+			if t.configManager.IsProjectDownloaded(p.ID) {
 				rows = append(rows, btable.NewRow(map[string]interface{}{
 					"id":     p.ID,
 					"name":   p.Name,

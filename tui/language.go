@@ -2,7 +2,6 @@ package tui
 
 import (
 	"404skill-cli/api"
-	"404skill-cli/config"
 	"bufio"
 	"fmt"
 	"os"
@@ -16,28 +15,35 @@ import (
 
 // LanguageComponent handles language selection and project cloning
 type LanguageComponent struct {
-	project     *api.Project
-	languages   []string
-	index       int
-	cloning     bool
-	progress    float64
-	errorMsg    string
-	fileManager FileManager
+	project       *api.Project
+	languages     []string
+	index         int
+	cloning       bool
+	progress      float64
+	errorMsg      string
+	fileManager   FileManager
+	configManager ConfigManager
 }
 
 // NewLanguageComponent creates a new language component
-func NewLanguageComponent(project *api.Project, fileManager FileManager) *LanguageComponent {
+func NewLanguageComponent(project *api.Project, fileManager FileManager, configManager ConfigManager) *LanguageComponent {
 	languages := strings.Split(project.Language, ",")
 	for i := range languages {
 		languages[i] = strings.TrimSpace(languages[i])
 	}
 
 	return &LanguageComponent{
-		project:     project,
-		languages:   languages,
-		index:       0,
-		fileManager: fileManager,
+		project:       project,
+		languages:     languages,
+		index:         0,
+		fileManager:   fileManager,
+		configManager: configManager,
 	}
+}
+
+// Init initializes the language component
+func (l *LanguageComponent) Init() tea.Cmd {
+	return nil
 }
 
 // Update handles messages for the language component
@@ -179,17 +185,7 @@ func (l *LanguageComponent) cloneProject(projectName, language string) tea.Cmd {
 		}
 
 		// Update config with downloaded project
-		cfg, err := config.ReadConfig()
-		if err != nil {
-			return errMsg{err: fmt.Errorf("failed to read config: %w", err)}
-		}
-
-		if cfg.DownloadedProjects == nil {
-			cfg.DownloadedProjects = make(map[string]bool)
-		}
-		cfg.DownloadedProjects[l.project.ID] = true
-
-		if err := config.WriteConfig(cfg); err != nil {
+		if err := l.configManager.UpdateDownloadedProject(l.project.ID); err != nil {
 			return errMsg{err: fmt.Errorf("failed to update config: %w", err)}
 		}
 
