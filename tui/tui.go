@@ -15,6 +15,7 @@ import (
 	"404skill-cli/api"
 	"404skill-cli/auth"
 	"404skill-cli/config"
+	"404skill-cli/filesystem"
 	"404skill-cli/supabase"
 	"404skill-cli/tui/login"
 
@@ -144,7 +145,7 @@ func InitialModel(client api.ClientInterface) model {
 	rows := []btable.Row{}
 	table := btable.New(bubbleTableColumns).WithRows(rows)
 
-	fileManager := NewDefaultFileManager()
+	fileManager := filesystem.NewManager()
 	configManager := config.NewConfigManager()
 
 	// Create auth provider for dependency injection

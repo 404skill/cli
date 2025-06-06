@@ -1,4 +1,4 @@
-package tui
+package filesystem
 
 import (
 	"os"
@@ -6,16 +6,16 @@ import (
 	"runtime"
 )
 
-// DefaultFileManager implements the FileManager interface
-type DefaultFileManager struct{}
+// Manager handles file system operations
+type Manager struct{}
 
-// NewDefaultFileManager creates a new default file manager
-func NewDefaultFileManager() *DefaultFileManager {
-	return &DefaultFileManager{}
+// NewManager creates a new filesystem manager
+func NewManager() *Manager {
+	return &Manager{}
 }
 
 // OpenFileExplorer opens the file explorer at the specified path
-func (f *DefaultFileManager) OpenFileExplorer(path string) error {
+func (f *Manager) OpenFileExplorer(path string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
@@ -29,17 +29,17 @@ func (f *DefaultFileManager) OpenFileExplorer(path string) error {
 }
 
 // CreateDirectory creates a directory if it doesn't exist
-func (f *DefaultFileManager) CreateDirectory(path string) error {
+func (f *Manager) CreateDirectory(path string) error {
 	return os.MkdirAll(path, 0755)
 }
 
 // RemoveDirectory removes a directory and all its contents
-func (f *DefaultFileManager) RemoveDirectory(path string) error {
+func (f *Manager) RemoveDirectory(path string) error {
 	return os.RemoveAll(path)
 }
 
 // DirectoryExists checks if a directory exists
-func (f *DefaultFileManager) DirectoryExists(path string) bool {
+func (f *Manager) DirectoryExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
