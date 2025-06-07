@@ -1,24 +1,24 @@
 package tui
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
 	"404skill-cli/api"
 	"404skill-cli/auth"
 	"404skill-cli/config"
+	"404skill-cli/downloader"
 	"404skill-cli/filesystem"
 	"404skill-cli/supabase"
 	"404skill-cli/tui/components/footer"
 	"404skill-cli/tui/components/menu"
+	"404skill-cli/tui/language"
 	"404skill-cli/tui/login"
 	"404skill-cli/tui/projects"
 
@@ -38,7 +38,6 @@ const (
 	stateLogin
 	stateProjectList
 	stateLanguageSelection
-	stateConfirmRedownload
 	stateTestProject
 )
 
@@ -60,7 +59,7 @@ type model struct {
 	// Components
 	loginComponent    *login.Component
 	projectComponent  *projects.Component
-	languageComponent *LanguageComponent
+	languageComponent *language.Component
 	testComponent     *TestComponent
 
 	// Menu components
@@ -86,28 +85,12 @@ type model struct {
 	loading      bool
 	selectedInfo string
 
-	// Language Selection
-	selectedProject *api.Project
-	languages       []string
-	languageIndex   int
-	cloning         bool
-	cloneProgress   float64
-
-	// Confirm Redownload
-	confirmRedownloadProject *api.Project
-	confirmRedownloadLang    string
+	// Downloader
+	downloader downloader.Downloader
 }
 
 type errMsg struct {
 	err error
-}
-
-// cloneCompleteMsg is sent when the git clone operation completes successfully
-type cloneCompleteMsg struct{}
-
-// cloneProgressMsg contains the current progress of the git clone operation
-type cloneProgressMsg struct {
-	progress float64
 }
 
 type keyMap struct {
@@ -171,6 +154,9 @@ func InitialModel(client api.ClientInterface) model {
 	// Create main menu with default theme styles
 	mainMenu := menu.New([]string{"Download a project", "Test a project"})
 
+	// Create downloader
+	gitDownloader := downloader.NewGitDownloader(fileManager, configManager, client)
+
 	m := model{
 		state:            state,
 		mainMenuIndex:    0,
@@ -187,6 +173,7 @@ func InitialModel(client api.ClientInterface) model {
 		testComponent:    NewTestComponent(fileManager, configManager, client),
 		footer:           footer.New(),
 		mainMenu:         mainMenu,
+		downloader:       gitDownloader,
 	}
 
 	return m
@@ -349,16 +336,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 
 						if projectDir == "" {
-							// Use the selected project for re-download
-							m.confirmRedownloadProject = selectedProject
-							m.languages = strings.Split(selectedProject.Language, ",")
-							for i := range m.languages {
-								m.languages[i] = strings.TrimSpace(m.languages[i])
-							}
-							m.languageIndex = 0
-							m.state = stateConfirmRedownload
-							return m, nil
-							m.errorMsg = "Project was downloaded but directory not found. It might have been moved or deleted."
+							// Project directory not found, go to language selection for re-download
+							m.languageComponent = language.New(selectedProject, m.downloader)
+							m.state = stateLanguageSelection
 							return m, nil
 						}
 
@@ -372,14 +352,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 
-					// Use the selected project
-					m.selectedProject = selectedProject
-					// Split languages by comma and trim spaces
-					m.languages = strings.Split(selectedProject.Language, ",")
-					for i := range m.languages {
-						m.languages[i] = strings.TrimSpace(m.languages[i])
-					}
-					m.languageIndex = 0
+					// Create language component for new download
+					m.languageComponent = language.New(selectedProject, m.downloader)
 					m.state = stateLanguageSelection
 					return m, nil
 				}
@@ -408,94 +382,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "esc", "b":
 				m.state = stateProjectList
-				m.selectedProject = nil
-				m.languages = nil
-				m.languageIndex = 0
+				m.languageComponent = nil
 				m.errorMsg = ""
 				return m, nil
-			case "up", "k":
-				m.languageIndex--
-				if m.languageIndex < 0 {
-					m.languageIndex = len(m.languages) - 1
-				}
-			case "down", "j":
-				m.languageIndex++
-				if m.languageIndex >= len(m.languages) {
-					m.languageIndex = 0
-				}
-			case "enter":
-				if m.selectedProject != nil {
-					m.cloning = true
-					m.errorMsg = ""
-					return m, m.cloneProject(m.selectedProject.Name, m.languages[m.languageIndex])
-				}
 			}
-		case cloneCompleteMsg:
-			m.cloning = false
+		case language.DownloadCompleteMsg:
 			m.state = stateProjectList
+			m.languageComponent = nil
 			// Update the project component to reflect new download status
 			m.projectComponent.UpdateProjectStatus()
-			// Clear both project references
-			m.selectedProject = nil
-			m.confirmRedownloadProject = nil
-			m.confirmRedownloadLang = ""
 			return m, nil
-		case cloneProgressMsg:
-			m.cloneProgress = msg.progress
-			return m, nil
-		case errMsg:
-			m.errorMsg = msg.err.Error()
-			m.cloning = false
-			return m, nil
+		case language.DownloadProgressMsg:
+			// Pass progress to language component
+			updatedComponent, cmd := m.languageComponent.Update(msg)
+			m.languageComponent = updatedComponent
+			return m, cmd
+		case language.DownloadErrorMsg:
+			m.errorMsg = msg.Error
+			// Pass error to language component
+			updatedComponent, cmd := m.languageComponent.Update(msg)
+			m.languageComponent = updatedComponent
+			return m, cmd
 		}
-	case stateConfirmRedownload:
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "ctrl+c", "q":
-				m.quitting = true
-				return m, tea.Quit
-			case "esc", "b":
-				m.state = stateProjectList
-				m.confirmRedownloadProject = nil
-				m.confirmRedownloadLang = ""
-				m.errorMsg = ""
-				return m, nil
-			case "up", "k":
-				m.languageIndex--
-				if m.languageIndex < 0 {
-					m.languageIndex = len(m.languages) - 1
-				}
-			case "down", "j":
-				m.languageIndex++
-				if m.languageIndex >= len(m.languages) {
-					m.languageIndex = 0
-				}
-			case "enter":
-				if m.confirmRedownloadProject != nil {
-					m.cloning = true
-					m.errorMsg = ""
-					return m, m.cloneProject(m.confirmRedownloadProject.Name, m.languages[m.languageIndex])
-				}
-			}
-		case cloneCompleteMsg:
-			m.cloning = false
-			m.state = stateProjectList
-			// Update the project component to reflect new download status
-			m.projectComponent.UpdateProjectStatus()
-			// Clear both project references
-			m.selectedProject = nil
-			m.confirmRedownloadProject = nil
-			m.confirmRedownloadLang = ""
-			return m, nil
-		case cloneProgressMsg:
-			m.cloneProgress = msg.progress
-			return m, nil
-		case errMsg:
-			m.errorMsg = msg.err.Error()
-			m.cloning = false
-			return m, nil
+
+		// Update language component
+		if m.languageComponent != nil {
+			updatedComponent, cmd := m.languageComponent.Update(msg)
+			m.languageComponent = updatedComponent
+			return m, cmd
 		}
+
 	case stateTestProject:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
@@ -560,59 +476,11 @@ func (m model) View() string {
 		}
 		return view
 	case stateLanguageSelection:
-		if m.cloning {
-			progress := int(m.cloneProgress * 100)
-			progressBar := strings.Repeat("█", progress/10) + strings.Repeat("░", 10-progress/10)
-			return fmt.Sprintf("%s\n\nCloning project...\n[%s] %d%%\n\nPress q to quit",
-				headerStyle.Render("Cloning Project"),
-				progressBar,
-				progress)
+		if m.languageComponent != nil {
+			return m.languageComponent.View()
 		}
+		return "Loading language selection..."
 
-		menu := headerStyle.Render("\nSelect a language for "+m.selectedProject.Name) + "\n\n"
-		for i, lang := range m.languages {
-			cursor := "  "
-			style := menuItemStyle
-			if m.languageIndex == i {
-				cursor = "> "
-				style = selectedMenuItemStyle
-			}
-			menu += fmt.Sprintf("%s%s\n", cursor, style.Render(lang))
-		}
-		menu += "\n" + m.footer.View(footer.NavigateBinding, footer.EnterBinding, footer.BackBinding, footer.QuitBinding)
-
-		if m.errorMsg != "" {
-			menu += "\n\n" + errorStyle.Render("Error: "+m.errorMsg)
-		}
-		return menu
-	case stateConfirmRedownload:
-		if m.cloning {
-			progress := int(m.cloneProgress * 100)
-			progressBar := strings.Repeat("█", progress/10) + strings.Repeat("░", 10-progress/10)
-			return fmt.Sprintf("%s\n\nCloning project...\n[%s] %d%%\n\nPress q to quit",
-				headerStyle.Render("Cloning Project"),
-				progressBar,
-				progress)
-		}
-
-		menu := headerStyle.Render("\nProject directory not found. Would you like to re-download?") + "\n\n"
-		menu += fmt.Sprintf("Project: %s\n\n", m.confirmRedownloadProject.Name)
-		menu += "Select language:\n\n"
-		for i, lang := range m.languages {
-			cursor := "  "
-			style := menuItemStyle
-			if m.languageIndex == i {
-				cursor = "> "
-				style = selectedMenuItemStyle
-			}
-			menu += fmt.Sprintf("%s%s\n", cursor, style.Render(lang))
-		}
-		menu += "\n" + m.footer.View(footer.NavigateBinding, footer.ConfirmBinding, footer.BackBinding, footer.QuitBinding)
-
-		if m.errorMsg != "" {
-			menu += "\n\n" + errorStyle.Render("Error: "+m.errorMsg)
-		}
-		return menu
 	case stateTestProject:
 		if m.loading {
 			return headerStyle.Render("\nLoading projects...")
@@ -649,117 +517,4 @@ func openFileExplorer(path string) error {
 		cmd = exec.Command("xdg-open", path)
 	}
 	return cmd.Start()
-}
-
-// cloneProject initiates the git clone operation for the selected project and language.
-// It creates the projects directory if it doesn't exist, formats the repository URL,
-// and updates the config file with the downloaded project information.
-func (m model) cloneProject(projectName, language string) tea.Cmd {
-	return func() tea.Msg {
-		// Create projects directory if it doesn't exist
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return errMsg{err: fmt.Errorf("failed to get home directory: %w", err)}
-		}
-
-		projectsDir := filepath.Join(homeDir, "404skill_projects")
-		if err := os.MkdirAll(projectsDir, 0755); err != nil {
-			return errMsg{err: fmt.Errorf("failed to create projects directory: %w", err)}
-		}
-
-		// Format project name for repo URL
-		repoName := strings.ToLower(strings.ReplaceAll(projectName, " ", "_"))
-		repoURL := fmt.Sprintf("https://github.com/404skill/%s_%s", repoName, language)
-		targetDir := filepath.Join(projectsDir, fmt.Sprintf("%s_%s", repoName, language))
-
-		testRepoUrl := fmt.Sprintf("https://github.com/404skill/%s_%s_test", repoName, language)
-		testDir := filepath.Join(projectsDir, ".tests", fmt.Sprintf("%s_%s", repoName, language))
-		if err := os.MkdirAll(testDir, 0755); err != nil {
-			return errMsg{err: fmt.Errorf("failed to create tests directory: %w", err)}
-		}
-
-		// Start git clone with progress output
-		cmdCloneProject := exec.Command("git", "clone", "--progress", repoURL, targetDir)
-		cmdCloneTest := exec.Command("git", "clone", "--progress", testRepoUrl, testDir)
-
-		stderr, err := cmdCloneProject.StderrPipe()
-		if err != nil {
-			return errMsg{err: fmt.Errorf("failed to create stderr pipe: %w", err)}
-		}
-
-		if err := cmdCloneProject.Start(); err != nil {
-			return errMsg{err: fmt.Errorf("failed to start git clone: %w", err)}
-		}
-
-		if err := cmdCloneTest.Start(); err != nil {
-			return errMsg{err: fmt.Errorf("failed to start git clone: %w", err)}
-		}
-
-		// Read progress from stderr
-		scanner := bufio.NewScanner(stderr)
-		var cloneError string
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.Contains(line, "Receiving objects") {
-				// Parse percentage from line like "Receiving objects: 45% (9/20)"
-				if strings.Contains(line, "%") {
-					parts := strings.Split(line, "%")
-					if len(parts) > 0 {
-						if progress, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64); err == nil {
-							// Send progress update
-							tea.Batch(
-								func() tea.Msg { return cloneProgressMsg{progress: progress / 100} },
-							)()
-						}
-					}
-				}
-			} else if strings.Contains(line, "error:") || strings.Contains(line, "fatal:") {
-				cloneError = line
-			}
-		}
-
-		if err := cmdCloneProject.Wait(); err != nil {
-			if cloneError != "" {
-				return errMsg{err: fmt.Errorf("git clone failed: %s", cloneError)}
-			}
-			return errMsg{err: fmt.Errorf("git clone failed: %w", err)}
-		}
-
-		if err := cmdCloneTest.Wait(); err != nil {
-			return errMsg{err: fmt.Errorf("git clone failed: %w", err)}
-		}
-
-		// Verify the clone was successful by checking if the directory exists and has content
-		if _, err := os.Stat(targetDir); os.IsNotExist(err) {
-			return errMsg{err: fmt.Errorf("clone appeared to succeed but target directory is missing")}
-		}
-
-		// Update config with downloaded project
-		// Get the project ID based on the current state
-		var projectID string
-		if m.state == stateConfirmRedownload && m.confirmRedownloadProject != nil {
-			projectID = m.confirmRedownloadProject.ID
-		} else if m.selectedProject != nil {
-			projectID = m.selectedProject.ID
-		} else {
-			return errMsg{err: fmt.Errorf("no project selected for download")}
-		}
-
-		if err := m.configManager.UpdateDownloadedProject(projectID); err != nil {
-			return errMsg{err: fmt.Errorf("failed to update config: %w", err)}
-		}
-
-		// Open file explorer at the cloned directory
-		if err := openFileExplorer(targetDir); err != nil {
-			// Don't return error here, as the clone was successful
-			// Just log the error and continue
-			fmt.Printf("Warning: Failed to open file explorer: %v\n", err)
-		}
-
-		if err := m.client.InitializeProject(context.Background(), projectID); err != nil {
-			return errMsg{err: fmt.Errorf("failed to update profile project. error: %w", err)}
-		}
-
-		return cloneCompleteMsg{}
-	}
 }

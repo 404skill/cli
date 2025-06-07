@@ -2,6 +2,7 @@ package tui
 
 import (
 	"404skill-cli/tui/components/menu"
+	"404skill-cli/tui/language"
 	"404skill-cli/tui/login"
 	"404skill-cli/tui/projects"
 
@@ -18,7 +19,6 @@ const (
 	StateLogin
 	StateProjectList
 	StateLanguageSelection
-	StateConfirmRedownload
 	StateTestProject
 )
 
@@ -39,7 +39,7 @@ type Model struct {
 	// Components
 	loginComponent    *login.Component
 	projectComponent  *projects.Component
-	languageComponent *LanguageComponent
+	languageComponent *language.Component
 	testComponent     *TestComponent
 	help              help.Model
 
