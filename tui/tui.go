@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -343,7 +341,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 
 						// Try to open the directory
-						if err := openFileExplorer(projectDir); err != nil {
+						if err := m.fileManager.OpenFileExplorer(projectDir); err != nil {
 							m.errorMsg = fmt.Sprintf("Project was downloaded but couldn't open directory: %v", err)
 							return m, nil
 						}
@@ -502,19 +500,4 @@ func fetchProjects(client api.ClientInterface) tea.Cmd {
 		}
 		return projects
 	}
-}
-
-// --- Project Cloning ---
-// openFileExplorer opens the file explorer at the specified path
-func openFileExplorer(path string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("explorer", path)
-	case "darwin":
-		cmd = exec.Command("open", path)
-	default: // "linux", "freebsd", "openbsd", "netbsd"
-		cmd = exec.Command("xdg-open", path)
-	}
-	return cmd.Start()
 }
