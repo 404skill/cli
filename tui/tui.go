@@ -17,6 +17,7 @@ import (
 	"404skill-cli/config"
 	"404skill-cli/filesystem"
 	"404skill-cli/supabase"
+	"404skill-cli/tui/components/footer"
 	"404skill-cli/tui/login"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -64,6 +65,7 @@ type model struct {
 	fileManager   FileManager
 	configManager ConfigManager
 	help          help.Model
+	footer        *footer.Component
 
 	// State
 	ready    bool
@@ -174,6 +176,7 @@ func InitialModel(client api.ClientInterface) model {
 		fileManager:     fileManager,
 		configManager:   configManager,
 		testComponent:   NewTestComponent(fileManager, configManager, client),
+		footer:          footer.New(),
 	}
 }
 
@@ -601,7 +604,7 @@ func (m model) View() string {
 			}
 			menu += fmt.Sprintf("%s%s\n", cursor, style.Render(choice))
 		}
-		menu += helpStyle.Render("\nUse ↑/↓ or k/j to move, Enter to select, q to quit.")
+		menu += "\n" + m.footer.View(footer.NavigateBinding, footer.EnterBinding, footer.QuitBinding)
 		return menu
 	case stateLogin:
 		return m.loginComponent.View()
@@ -639,7 +642,7 @@ func (m model) View() string {
 			}
 			menu += fmt.Sprintf("%s%s\n", cursor, style.Render(lang))
 		}
-		menu += helpStyle.Render("\nUse ↑/↓ or k/j to move, Enter to select, [esc/b] back, q to quit")
+		menu += "\n" + m.footer.View(footer.NavigateBinding, footer.EnterBinding, footer.BackBinding, footer.QuitBinding)
 
 		if m.errorMsg != "" {
 			menu += "\n\n" + errorStyle.Render("Error: "+m.errorMsg)
@@ -667,7 +670,7 @@ func (m model) View() string {
 			}
 			menu += fmt.Sprintf("%s%s\n", cursor, style.Render(lang))
 		}
-		menu += helpStyle.Render("\nUse ↑/↓ or k/j to move, Enter to confirm, [esc/b] back, q to quit")
+		menu += "\n" + m.footer.View(footer.NavigateBinding, footer.ConfirmBinding, footer.BackBinding, footer.QuitBinding)
 
 		if m.errorMsg != "" {
 			menu += "\n\n" + errorStyle.Render("Error: "+m.errorMsg)

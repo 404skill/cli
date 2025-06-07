@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"404skill-cli/auth"
+	"404skill-cli/tui/components/footer"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +19,7 @@ type Component struct {
 	errorMsg    string
 	loggingIn   bool
 	authService *auth.AuthService
+	footer      *footer.Component
 }
 
 // New creates a new login component with dependency injection
@@ -39,6 +41,7 @@ func New(authProvider auth.AuthProvider, configWriter auth.ConfigWriter) *Compon
 		inputs:      []textinput.Model{username, password},
 		focusIdx:    0,
 		authService: auth.NewAuthService(authProvider, configWriter),
+		footer:      footer.New(),
 	}
 }
 
@@ -143,7 +146,7 @@ func (c *Component) View() string {
 
 	content := "Username: " + inputs[0] + "\n" +
 		"Password: " + inputs[1] + "\n" +
-		strings.Repeat(" ", 2) + "[Tab] Switch  [Enter] Submit  [q] Quit"
+		strings.Repeat(" ", 2) + c.footer.View(footer.TabBinding, footer.SubmitBinding, footer.QuitBinding)
 
 	if c.errorMsg != "" {
 		content += "\n" + errorStyle.Render(c.errorMsg)

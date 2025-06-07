@@ -209,14 +209,15 @@ func TestComponent_View_ContainsExpectedElements(t *testing.T) {
 	expectedElements := []string{
 		"Username:",
 		"Password:",
-		"Tab",    // Part of the tab instruction
-		"Enter",  // Part of the enter instruction
-		"Submit", // Part of the submit instruction
+		"[tab] switch",   // New footer format
+		"[enter] submit", // New footer format
+		"[q]",            // Split due to line wrapping
+		"quit",           // Split due to line wrapping
 	}
 
 	for _, element := range expectedElements {
 		if !strings.Contains(view, element) {
-			t.Errorf("Expected view to contain '%s'", element)
+			t.Errorf("Expected view to contain '%s', but got: %s", element, view)
 		}
 	}
 
