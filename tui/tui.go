@@ -18,6 +18,7 @@ import (
 	"404skill-cli/filesystem"
 	"404skill-cli/supabase"
 	"404skill-cli/tui/components/footer"
+	"404skill-cli/tui/components/table"
 	"404skill-cli/tui/login"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -66,6 +67,7 @@ type model struct {
 	configManager ConfigManager
 	help          help.Model
 	footer        *footer.Component
+	projectTable  *table.Component
 
 	// State
 	ready    bool
@@ -145,7 +147,7 @@ var keys = keyMap{
 // --- Initial Model ---
 func InitialModel(client api.ClientInterface) model {
 	rows := []btable.Row{}
-	table := btable.New(bubbleTableColumns).WithRows(rows)
+	btableModel := btable.New(bubbleTableColumns).WithRows(rows)
 
 	fileManager := filesystem.NewManager()
 	configManager := config.NewConfigManager()
@@ -163,12 +165,12 @@ func InitialModel(client api.ClientInterface) model {
 		state = stateRefreshingToken
 	}
 
-	return model{
+	m := model{
 		state:           state,
 		mainMenuIndex:   0,
 		mainMenuChoices: []string{"Download a project", "Test a project"},
 		loginComponent:  login.New(authProvider, configManager),
-		table:           table,
+		table:           btableModel,
 		help:            help.New(),
 		client:          client,
 		selected:        -1,
@@ -178,6 +180,19 @@ func InitialModel(client api.ClientInterface) model {
 		testComponent:   NewTestComponent(fileManager, configManager, client),
 		footer:          footer.New(),
 	}
+
+	// Initialize project table with status provider
+	m.projectTable = table.New(&m)
+
+	return m
+}
+
+// GetProjectStatus implements table.ProjectStatusProvider
+func (m *model) GetProjectStatus(projectID string) string {
+	if m.configManager.IsProjectDownloaded(projectID) {
+		return "✓ Downloaded"
+	}
+	return ""
 }
 
 // --- State Machine ---
@@ -297,10 +312,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = -1
 				return m, nil
 			case "enter":
-				selectedRow := m.table.HighlightedRow()
-				if selectedRow.Data != nil {
+				selectedProject := m.projectTable.GetHighlightedProject()
+				if selectedProject != nil {
 					// Check if project is already downloaded
-					if projectID, ok := selectedRow.Data["id"].(string); ok && m.configManager.IsProjectDownloaded(projectID) {
+					if m.configManager.IsProjectDownloaded(selectedProject.ID) {
 						// Try to open the project directory
 						homeDir, err := os.UserHomeDir()
 						if err != nil {
@@ -308,19 +323,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return m, nil
 						}
 
-						// Find the project in our list to get its name
-						var projectName string
-						for _, p := range m.projects {
-							if p.ID == projectID {
-								projectName = p.Name
-								break
-							}
-						}
-
-						if projectName == "" {
-							m.errorMsg = "Project already downloaded but couldn't find project details."
-							return m, nil
-						}
+						// Use the selected project's name
+						projectName := selectedProject.Name
 
 						// Format project name for directory
 						repoName := strings.ToLower(strings.ReplaceAll(projectName, " ", "_"))
@@ -342,19 +346,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 
 						if projectDir == "" {
-							// Find the project and its languages
-							for _, p := range m.projects {
-								if p.ID == projectID {
-									m.confirmRedownloadProject = &p
-									m.languages = strings.Split(p.Language, ",")
-									for i := range m.languages {
-										m.languages[i] = strings.TrimSpace(m.languages[i])
-									}
-									m.languageIndex = 0
-									m.state = stateConfirmRedownload
-									return m, nil
-								}
+							// Use the selected project for re-download
+							m.confirmRedownloadProject = selectedProject
+							m.languages = strings.Split(selectedProject.Language, ",")
+							for i := range m.languages {
+								m.languages[i] = strings.TrimSpace(m.languages[i])
 							}
+							m.languageIndex = 0
+							m.state = stateConfirmRedownload
+							return m, nil
 							m.errorMsg = "Project was downloaded but directory not found. It might have been moved or deleted."
 							return m, nil
 						}
@@ -369,20 +369,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 
-					// Find the selected project
-					for _, p := range m.projects {
-						if p.ID == selectedRow.Data["id"] {
-							m.selectedProject = &p
-							// Split languages by comma and trim spaces
-							m.languages = strings.Split(p.Language, ",")
-							for i := range m.languages {
-								m.languages[i] = strings.TrimSpace(m.languages[i])
-							}
-							m.languageIndex = 0
-							m.state = stateLanguageSelection
-							return m, nil
-						}
+					// Use the selected project
+					m.selectedProject = selectedProject
+					// Split languages by comma and trim spaces
+					m.languages = strings.Split(selectedProject.Language, ",")
+					for i := range m.languages {
+						m.languages[i] = strings.TrimSpace(m.languages[i])
 					}
+					m.languageIndex = 0
+					m.state = stateLanguageSelection
+					return m, nil
 				}
 			}
 		case tea.WindowSizeMsg:
@@ -393,35 +389,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case []api.Project:
 			m.projects = msg
-			rows := []btable.Row{}
-
-			// Get downloaded projects from config
-			downloadedProjects := m.configManager.GetDownloadedProjects()
-
-			for _, p := range msg {
-				status := ""
-				if downloadedProjects[p.ID] {
-					status = "✓ Downloaded"
-				}
-				rows = append(rows, btable.NewRow(map[string]interface{}{
-					"id":     p.ID,
-					"name":   p.Name,
-					"lang":   p.Language,
-					"diff":   p.Difficulty,
-					"dur":    fmt.Sprintf("%d min", p.EstimatedDurationInMinutes),
-					"status": status,
-				}))
-			}
-			m.table = btable.New(bubbleTableColumns).
-				WithRows(rows).
-				Focused(true)
-
+			m.projectTable.SetProjects(msg)
+			m.projectTable.SetFocused(true)
 			m.loading = false
 		case errMsg:
 			m.errorMsg = msg.err.Error()
 			m.loading = false
 		}
-		m.table, cmd = m.table.Update(msg)
+		m.projectTable, cmd = m.projectTable.Update(msg)
 	case stateLanguageSelection:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
@@ -456,24 +431,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case cloneCompleteMsg:
 			m.cloning = false
 			m.state = stateProjectList
-			// Update the status of the cloned project in the table
-			rows := []btable.Row{}
-			for _, p := range m.projects {
-				status := ""
-				if (m.selectedProject != nil && p.ID == m.selectedProject.ID) ||
-					(m.confirmRedownloadProject != nil && p.ID == m.confirmRedownloadProject.ID) {
-					status = "✓ Downloaded"
-				}
-				rows = append(rows, btable.NewRow(map[string]interface{}{
-					"id":     p.ID,
-					"name":   p.Name,
-					"lang":   p.Language,
-					"diff":   p.Difficulty,
-					"dur":    fmt.Sprintf("%d min", p.EstimatedDurationInMinutes),
-					"status": status,
-				}))
-			}
-			m.table = m.table.WithRows(rows)
+			// Update the project table to reflect new download status
+			m.projectTable.UpdateProjectStatus()
 			// Clear both project references
 			m.selectedProject = nil
 			m.confirmRedownloadProject = nil
@@ -520,24 +479,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case cloneCompleteMsg:
 			m.cloning = false
 			m.state = stateProjectList
-			// Update the status of the cloned project in the table
-			rows := []btable.Row{}
-			for _, p := range m.projects {
-				status := ""
-				if (m.selectedProject != nil && p.ID == m.selectedProject.ID) ||
-					(m.confirmRedownloadProject != nil && p.ID == m.confirmRedownloadProject.ID) {
-					status = "✓ Downloaded"
-				}
-				rows = append(rows, btable.NewRow(map[string]interface{}{
-					"id":     p.ID,
-					"name":   p.Name,
-					"lang":   p.Language,
-					"diff":   p.Difficulty,
-					"dur":    fmt.Sprintf("%d min", p.EstimatedDurationInMinutes),
-					"status": status,
-				}))
-			}
-			m.table = m.table.WithRows(rows)
+			// Update the project table to reflect new download status
+			m.projectTable.UpdateProjectStatus()
 			// Clear both project references
 			m.selectedProject = nil
 			m.confirmRedownloadProject = nil
@@ -617,7 +560,7 @@ func (m model) View() string {
 		if m.selectedInfo != "" {
 			info = "\n" + m.selectedInfo
 		}
-		view := fmt.Sprintf("%s\n%s%s", m.table.View(), helpView, info)
+		view := fmt.Sprintf("%s\n%s%s", m.projectTable.View(), helpView, info)
 		if m.errorMsg != "" {
 			view = fmt.Sprintf("%s\n\n%s", view, errorStyle.Render(m.errorMsg))
 		}
