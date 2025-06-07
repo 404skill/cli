@@ -32,12 +32,8 @@ func NewLanguageComponent(project *api.Project, fileManager FileManager, configM
 		languages[i] = strings.TrimSpace(languages[i])
 	}
 
-	// Create menu with custom styles to match existing theme
+	// Create menu with default theme styles
 	languageMenu := menu.New(languages)
-	menuStyles := menu.DefaultStyles()
-	menuStyles.ItemStyle = menuItemStyle
-	menuStyles.SelectedStyle = selectedMenuItemStyle
-	languageMenu.SetStyles(menuStyles)
 
 	return &LanguageComponent{
 		project:       project,

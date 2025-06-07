@@ -22,16 +22,20 @@ type Styles struct {
 	SelectedCursor string
 }
 
-// DefaultStyles returns the default styling for menus
+// DefaultStyles returns the default styling for menus that matches the application theme
 func DefaultStyles() Styles {
+	// Colors from the main application theme
+	primary := lipgloss.Color("#00ff00") // Bright green
+	bg := lipgloss.Color("#000000")      // Black
+
 	return Styles{
 		ItemStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00ff00")). // Bright green
-			Background(lipgloss.Color("#000000")). // Black
+			Foreground(primary).
+			Background(bg).
 			Padding(0, 1),
 		SelectedStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#000000")). // Black
-			Background(lipgloss.Color("#00ff00")). // Bright green
+			Foreground(bg).
+			Background(primary).
 			Bold(true).
 			Padding(0, 1),
 		Cursor:         "  ",

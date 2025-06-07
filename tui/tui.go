@@ -169,13 +169,8 @@ func InitialModel(client api.ClientInterface) model {
 		state = stateRefreshingToken
 	}
 
-	// Create main menu with custom styles to match existing theme
-	mainMenuStyles := menu.DefaultStyles()
-	mainMenuStyles.ItemStyle = menuItemStyle
-	mainMenuStyles.SelectedStyle = selectedMenuItemStyle
-
+	// Create main menu with default theme styles
 	mainMenu := menu.New([]string{"Download a project", "Test a project"})
-	mainMenu.SetStyles(mainMenuStyles)
 
 	m := model{
 		state:           state,
