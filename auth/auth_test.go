@@ -1,14 +1,12 @@
-package login
+package auth
 
 import (
 	"context"
 	"errors"
 	"testing"
-
-	"404skill-cli/config"
 )
 
-// MockAuthProvider implements auth.AuthProvider for testing
+// MockAuthProvider implements AuthProvider for testing
 type MockAuthProvider struct {
 	signInFunc func(ctx context.Context, username, password string) (string, error)
 }
@@ -20,9 +18,16 @@ func (m *MockAuthProvider) SignIn(ctx context.Context, username, password string
 	return "mock-token", nil
 }
 
-// MockConfigManager implements config manager interface for testing
-type MockConfigManager struct {
-	// Add methods as needed for testing
+// MockConfigWriter implements ConfigWriter for testing
+type MockConfigWriter struct {
+	updateAuthConfigFunc func(username, password, accessToken string) error
+}
+
+func (m *MockConfigWriter) UpdateAuthConfig(username, password, accessToken string) error {
+	if m.updateAuthConfigFunc != nil {
+		return m.updateAuthConfigFunc(username, password, accessToken)
+	}
+	return nil
 }
 
 func TestAuthService_AttemptLogin_Success(t *testing.T) {
@@ -32,8 +37,8 @@ func TestAuthService_AttemptLogin_Success(t *testing.T) {
 			return "test-token", nil
 		},
 	}
-	configManager := config.NewConfigManager()
-	service := NewAuthService(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	service := NewAuthService(mockAuth, mockConfig)
 
 	// Act
 	result := service.AttemptLogin(context.Background(), "testuser", "testpass")
@@ -54,8 +59,8 @@ func TestAuthService_AttemptLogin_InvalidCredentials(t *testing.T) {
 			return "", errors.New("invalid credentials")
 		},
 	}
-	configManager := config.NewConfigManager()
-	service := NewAuthService(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	service := NewAuthService(mockAuth, mockConfig)
 
 	// Act
 	result := service.AttemptLogin(context.Background(), "wronguser", "wrongpass")
@@ -73,8 +78,8 @@ func TestAuthService_AttemptLogin_InvalidCredentials(t *testing.T) {
 func TestAuthService_AttemptLogin_EmptyUsername(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	service := NewAuthService(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	service := NewAuthService(mockAuth, mockConfig)
 
 	// Act
 	result := service.AttemptLogin(context.Background(), "", "password")
@@ -92,8 +97,8 @@ func TestAuthService_AttemptLogin_EmptyUsername(t *testing.T) {
 func TestAuthService_AttemptLogin_EmptyPassword(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	service := NewAuthService(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	service := NewAuthService(mockAuth, mockConfig)
 
 	// Act
 	result := service.AttemptLogin(context.Background(), "username", "")
@@ -103,6 +108,33 @@ func TestAuthService_AttemptLogin_EmptyPassword(t *testing.T) {
 		t.Error("Expected login to fail with empty password")
 	}
 	expectedError := "Username and password are required"
+	if result.Error != expectedError {
+		t.Errorf("Expected error '%s', but got '%s'", expectedError, result.Error)
+	}
+}
+
+func TestAuthService_AttemptLogin_ConfigSaveError(t *testing.T) {
+	// Arrange
+	mockAuth := &MockAuthProvider{
+		signInFunc: func(ctx context.Context, username, password string) (string, error) {
+			return "test-token", nil
+		},
+	}
+	mockConfig := &MockConfigWriter{
+		updateAuthConfigFunc: func(username, password, accessToken string) error {
+			return errors.New("config save failed")
+		},
+	}
+	service := NewAuthService(mockAuth, mockConfig)
+
+	// Act
+	result := service.AttemptLogin(context.Background(), "testuser", "testpass")
+
+	// Assert
+	if result.Success {
+		t.Error("Expected login to fail when config save fails")
+	}
+	expectedError := "Failed to save config: config save failed"
 	if result.Error != expectedError {
 		t.Errorf("Expected error '%s', but got '%s'", expectedError, result.Error)
 	}
@@ -175,10 +207,10 @@ func TestAuthService_ValidateCredentials_ShortUsername(t *testing.T) {
 func TestNewAuthService(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
+	mockConfig := &MockConfigWriter{}
 
 	// Act
-	service := NewAuthService(mockAuth, configManager)
+	service := NewAuthService(mockAuth, mockConfig)
 
 	// Assert
 	if service == nil {
@@ -187,7 +219,7 @@ func TestNewAuthService(t *testing.T) {
 	if service.authProvider != mockAuth {
 		t.Error("Expected auth provider to be set correctly")
 	}
-	if service.configManager != configManager {
-		t.Error("Expected config manager to be set correctly")
+	if service.configWriter != mockConfig {
+		t.Error("Expected config writer to be set correctly")
 	}
 }

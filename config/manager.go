@@ -1,12 +1,8 @@
 package config
 
 import (
-	"context"
 	"fmt"
 	"time"
-
-	"404skill-cli/auth"
-	"404skill-cli/supabase"
 )
 
 // ConfigManager handles configuration operations
@@ -84,7 +80,6 @@ func (c *ConfigManager) UpdateAuthConfig(username, password, accessToken string)
 }
 
 // GetToken gets a valid access token, refreshing it if necessary
-// This implements the TokenProvider interface functionality
 func (c *ConfigManager) GetToken() (string, error) {
 	config, err := readConfig()
 	if err != nil {
@@ -92,23 +87,7 @@ func (c *ConfigManager) GetToken() (string, error) {
 	}
 
 	if isTokenExpired(config.LastUpdated) || config.AccessToken == "" {
-		client, err := supabase.NewSupabaseClient()
-		if err != nil {
-			return "", fmt.Errorf("failed to create supabase client: %w", err)
-		}
-
-		authProvider := auth.NewSupabaseAuth(client)
-		accessToken, err := authProvider.SignIn(context.Background(), config.Username, config.Password)
-		if err != nil {
-			return "", fmt.Errorf("failed to refresh token: %w", err)
-		}
-
-		// Use our own UpdateAuthConfig method to save the new token
-		if err := c.UpdateAuthConfig(config.Username, config.Password, accessToken); err != nil {
-			return "", fmt.Errorf("failed to save new token: %w", err)
-		}
-
-		return accessToken, nil
+		return "", fmt.Errorf("token expired - please log in again")
 	}
 
 	return config.AccessToken, nil

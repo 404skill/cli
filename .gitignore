@@ -29,3 +29,4 @@ go.work.sum
 # Added by goreleaser init:
 dist/
 
+404skill-cli

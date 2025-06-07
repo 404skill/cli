@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"404skill-cli/auth"
-	"404skill-cli/config"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,11 +17,11 @@ type Component struct {
 	focusIdx    int
 	errorMsg    string
 	loggingIn   bool
-	authService *AuthService
+	authService *auth.AuthService
 }
 
 // New creates a new login component with dependency injection
-func New(authProvider auth.AuthProvider, configManager *config.ConfigManager) *Component {
+func New(authProvider auth.AuthProvider, configWriter auth.ConfigWriter) *Component {
 	username := textinput.New()
 	username.Placeholder = "Username"
 	username.Focus()
@@ -39,7 +38,7 @@ func New(authProvider auth.AuthProvider, configManager *config.ConfigManager) *C
 	return &Component{
 		inputs:      []textinput.Model{username, password},
 		focusIdx:    0,
-		authService: NewAuthService(authProvider, configManager),
+		authService: auth.NewAuthService(authProvider, configWriter),
 	}
 }
 

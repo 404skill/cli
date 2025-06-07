@@ -1,21 +1,44 @@
 package login
 
 import (
+	"context"
 	"strings"
 	"testing"
-
-	"404skill-cli/config"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// MockAuthProvider implements auth.AuthProvider for testing
+type MockAuthProvider struct {
+	signInFunc func(ctx context.Context, username, password string) (string, error)
+}
+
+func (m *MockAuthProvider) SignIn(ctx context.Context, username, password string) (string, error) {
+	if m.signInFunc != nil {
+		return m.signInFunc(ctx, username, password)
+	}
+	return "mock-token", nil
+}
+
+// MockConfigWriter implements auth.ConfigWriter for testing
+type MockConfigWriter struct {
+	updateAuthConfigFunc func(username, password, accessToken string) error
+}
+
+func (m *MockConfigWriter) UpdateAuthConfig(username, password, accessToken string) error {
+	if m.updateAuthConfigFunc != nil {
+		return m.updateAuthConfigFunc(username, password, accessToken)
+	}
+	return nil
+}
+
 func TestComponent_New(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
+	mockConfig := &MockConfigWriter{}
 
 	// Act
-	component := New(mockAuth, configManager)
+	component := New(mockAuth, mockConfig)
 
 	// Assert
 	if component == nil {
@@ -35,8 +58,8 @@ func TestComponent_New(t *testing.T) {
 func TestComponent_GetUsername(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 
 	// Set a test value
 	component.inputs[0].SetValue("testuser")
@@ -53,8 +76,8 @@ func TestComponent_GetUsername(t *testing.T) {
 func TestComponent_GetPassword(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 
 	// Set a test value
 	component.inputs[1].SetValue("testpass")
@@ -71,8 +94,8 @@ func TestComponent_GetPassword(t *testing.T) {
 func TestComponent_SetError(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 
 	// Act
 	component.SetError("test error")
@@ -86,8 +109,8 @@ func TestComponent_SetError(t *testing.T) {
 func TestComponent_SetLoggingIn(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 
 	// Act
 	component.SetLoggingIn(true)
@@ -109,8 +132,8 @@ func TestComponent_SetLoggingIn(t *testing.T) {
 func TestComponent_Update_TabNavigation(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 
 	// Initially focus should be on first input (index 0)
 	if component.focusIdx != 0 {
@@ -137,8 +160,8 @@ func TestComponent_Update_TabNavigation(t *testing.T) {
 func TestComponent_Update_LoginErrorMsg(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 	component.loggingIn = true // Set to logging in state
 
 	// Act
@@ -156,8 +179,8 @@ func TestComponent_Update_LoginErrorMsg(t *testing.T) {
 func TestComponent_Update_LoginSuccessMsg(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 	component.loggingIn = true            // Set to logging in state
 	component.errorMsg = "previous error" // Set previous error
 
@@ -176,8 +199,8 @@ func TestComponent_Update_LoginSuccessMsg(t *testing.T) {
 func TestComponent_View_ContainsExpectedElements(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 
 	// Act
 	view := component.View()
@@ -206,8 +229,8 @@ func TestComponent_View_ContainsExpectedElements(t *testing.T) {
 func TestComponent_View_ShowsError(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 	component.SetError("Test error message")
 
 	// Act
@@ -222,8 +245,8 @@ func TestComponent_View_ShowsError(t *testing.T) {
 func TestComponent_View_ShowsLoggingIn(t *testing.T) {
 	// Arrange
 	mockAuth := &MockAuthProvider{}
-	configManager := config.NewConfigManager()
-	component := New(mockAuth, configManager)
+	mockConfig := &MockConfigWriter{}
+	component := New(mockAuth, mockConfig)
 	component.SetLoggingIn(true)
 
 	// Act
