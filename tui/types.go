@@ -3,6 +3,7 @@ package tui
 import (
 	"404skill-cli/tui/components/menu"
 	"404skill-cli/tui/login"
+	"404skill-cli/tui/projects"
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
@@ -37,7 +38,7 @@ type Model struct {
 
 	// Components
 	loginComponent    *login.Component
-	projectComponent  *ProjectComponent
+	projectComponent  *projects.Component
 	languageComponent *LanguageComponent
 	testComponent     *TestComponent
 	help              help.Model

@@ -19,8 +19,8 @@ import (
 	"404skill-cli/supabase"
 	"404skill-cli/tui/components/footer"
 	"404skill-cli/tui/components/menu"
-	"404skill-cli/tui/components/table"
 	"404skill-cli/tui/login"
+	"404skill-cli/tui/projects"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -59,7 +59,7 @@ type model struct {
 
 	// Components
 	loginComponent    *login.Component
-	projectComponent  *ProjectComponent
+	projectComponent  *projects.Component
 	languageComponent *LanguageComponent
 	testComponent     *TestComponent
 
@@ -67,11 +67,10 @@ type model struct {
 	mainMenu *menu.Component
 
 	// Dependencies
-	fileManager   FileManager
-	configManager ConfigManager
+	fileManager   *filesystem.Manager
+	configManager *config.ConfigManager
 	help          help.Model
 	footer        *footer.Component
-	projectTable  *table.Component
 
 	// State
 	ready    bool
@@ -173,24 +172,22 @@ func InitialModel(client api.ClientInterface) model {
 	mainMenu := menu.New([]string{"Download a project", "Test a project"})
 
 	m := model{
-		state:           state,
-		mainMenuIndex:   0,
-		mainMenuChoices: []string{"Download a project", "Test a project"},
-		loginComponent:  login.New(authProvider, configManager),
-		table:           btableModel,
-		help:            help.New(),
-		client:          client,
-		selected:        -1,
-		loading:         false,
-		fileManager:     fileManager,
-		configManager:   configManager,
-		testComponent:   NewTestComponent(fileManager, configManager, client),
-		footer:          footer.New(),
-		mainMenu:        mainMenu,
+		state:            state,
+		mainMenuIndex:    0,
+		mainMenuChoices:  []string{"Download a project", "Test a project"},
+		loginComponent:   login.New(authProvider, configManager),
+		projectComponent: projects.New(client, configManager, fileManager),
+		table:            btableModel,
+		help:             help.New(),
+		client:           client,
+		selected:         -1,
+		loading:          false,
+		fileManager:      fileManager,
+		configManager:    configManager,
+		testComponent:    NewTestComponent(fileManager, configManager, client),
+		footer:           footer.New(),
+		mainMenu:         mainMenu,
 	}
-
-	// Initialize project table with status provider
-	m.projectTable = table.New(&m)
 
 	return m
 }
@@ -318,7 +315,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = -1
 				return m, nil
 			case "enter":
-				selectedProject := m.projectTable.GetHighlightedProject()
+				selectedProject := m.projectComponent.GetSelectedProject()
 				if selectedProject != nil {
 					// Check if project is already downloaded
 					if m.configManager.IsProjectDownloaded(selectedProject.ID) {
@@ -395,14 +392,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case []api.Project:
 			m.projects = msg
-			m.projectTable.SetProjects(msg)
-			m.projectTable.SetFocused(true)
+			m.projectComponent.SetProjects(msg)
 			m.loading = false
 		case errMsg:
 			m.errorMsg = msg.err.Error()
 			m.loading = false
 		}
-		m.projectTable, cmd = m.projectTable.Update(msg)
+		m.projectComponent, cmd = m.projectComponent.Update(msg)
 	case stateLanguageSelection:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
@@ -437,8 +433,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case cloneCompleteMsg:
 			m.cloning = false
 			m.state = stateProjectList
-			// Update the project table to reflect new download status
-			m.projectTable.UpdateProjectStatus()
+			// Update the project component to reflect new download status
+			m.projectComponent.UpdateProjectStatus()
 			// Clear both project references
 			m.selectedProject = nil
 			m.confirmRedownloadProject = nil
@@ -485,8 +481,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case cloneCompleteMsg:
 			m.cloning = false
 			m.state = stateProjectList
-			// Update the project table to reflect new download status
-			m.projectTable.UpdateProjectStatus()
+			// Update the project component to reflect new download status
+			m.projectComponent.UpdateProjectStatus()
 			// Clear both project references
 			m.selectedProject = nil
 			m.confirmRedownloadProject = nil
@@ -558,7 +554,7 @@ func (m model) View() string {
 		if m.selectedInfo != "" {
 			info = "\n" + m.selectedInfo
 		}
-		view := fmt.Sprintf("%s\n%s%s", m.projectTable.View(), helpView, info)
+		view := fmt.Sprintf("%s\n%s%s", m.projectComponent.View(), helpView, info)
 		if m.errorMsg != "" {
 			view = fmt.Sprintf("%s\n\n%s", view, errorStyle.Render(m.errorMsg))
 		}
