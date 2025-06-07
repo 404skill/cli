@@ -18,6 +18,7 @@ import (
 	"404skill-cli/filesystem"
 	"404skill-cli/supabase"
 	"404skill-cli/tui/components/footer"
+	"404skill-cli/tui/components/menu"
 	"404skill-cli/tui/components/table"
 	"404skill-cli/tui/login"
 
@@ -61,6 +62,9 @@ type model struct {
 	projectComponent  *ProjectComponent
 	languageComponent *LanguageComponent
 	testComponent     *TestComponent
+
+	// Menu components
+	mainMenu *menu.Component
 
 	// Dependencies
 	fileManager   FileManager
@@ -165,6 +169,14 @@ func InitialModel(client api.ClientInterface) model {
 		state = stateRefreshingToken
 	}
 
+	// Create main menu with custom styles to match existing theme
+	mainMenuStyles := menu.DefaultStyles()
+	mainMenuStyles.ItemStyle = menuItemStyle
+	mainMenuStyles.SelectedStyle = selectedMenuItemStyle
+
+	mainMenu := menu.New([]string{"Download a project", "Test a project"})
+	mainMenu.SetStyles(mainMenuStyles)
+
 	m := model{
 		state:           state,
 		mainMenuIndex:   0,
@@ -179,6 +191,7 @@ func InitialModel(client api.ClientInterface) model {
 		configManager:   configManager,
 		testComponent:   NewTestComponent(fileManager, configManager, client),
 		footer:          footer.New(),
+		mainMenu:        mainMenu,
 	}
 
 	// Initialize project table with status provider
@@ -236,30 +249,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Block all other input
 		return m, nil
 	case stateMainMenu:
+		// Update main menu component
+		var menuCmd tea.Cmd
+		m.mainMenu, menuCmd = m.mainMenu.Update(msg)
+
 		switch msg := msg.(type) {
+		case menu.MenuSelectMsg:
+			m.selectedAction = mainMenuChoice(msg.SelectedIndex)
+			if m.selectedAction == choiceTest {
+				m.state = stateTestProject
+				m.loading = true
+				return m, fetchProjects(m.client)
+			} else {
+				m.state = stateProjectList
+				m.loading = true
+				return m, fetchProjects(m.client)
+			}
 		case tea.KeyMsg:
 			switch msg.String() {
-			case "up", "k":
-				m.mainMenuIndex--
-				if m.mainMenuIndex < 0 {
-					m.mainMenuIndex = len(m.mainMenuChoices) - 1
-				}
-			case "down", "j":
-				m.mainMenuIndex++
-				if m.mainMenuIndex >= len(m.mainMenuChoices) {
-					m.mainMenuIndex = 0
-				}
-			case "enter":
-				m.selectedAction = mainMenuChoice(m.mainMenuIndex)
-				if m.selectedAction == choiceTest {
-					m.state = stateTestProject
-					m.loading = true
-					return m, fetchProjects(m.client)
-				} else {
-					m.state = stateProjectList
-					m.loading = true
-					return m, fetchProjects(m.client)
-				}
 			case "q", "ctrl+c":
 				m.quitting = true
 				return m, tea.Quit
@@ -275,6 +282,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = stateLogin
 			m.loginComponent.SetError(msg.err.Error())
 			return m, nil
+		}
+
+		if menuCmd != nil {
+			return m, menuCmd
 		}
 	case stateLogin:
 		switch msg := msg.(type) {
@@ -537,18 +548,10 @@ func (m model) View() string {
 	case stateRefreshingToken:
 		return headerStyle.Render("\nRefreshing session... Please wait.")
 	case stateMainMenu:
-		menu := asciiArt + "\n"
-		for i, choice := range m.mainMenuChoices {
-			cursor := "  "
-			style := menuItemStyle
-			if m.mainMenuIndex == i {
-				cursor = "> "
-				style = selectedMenuItemStyle
-			}
-			menu += fmt.Sprintf("%s%s\n", cursor, style.Render(choice))
-		}
-		menu += "\n" + m.footer.View(footer.NavigateBinding, footer.EnterBinding, footer.QuitBinding)
-		return menu
+		view := asciiArt + "\n"
+		view += m.mainMenu.View()
+		view += "\n" + m.footer.View(footer.NavigateBinding, footer.EnterBinding, footer.QuitBinding)
+		return view
 	case stateLogin:
 		return m.loginComponent.View()
 	case stateProjectList:

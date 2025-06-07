@@ -2,6 +2,7 @@ package tui
 
 import (
 	"404skill-cli/api"
+	"404skill-cli/tui/components/menu"
 	"bufio"
 	"fmt"
 	"os"
@@ -16,8 +17,7 @@ import (
 // LanguageComponent handles language selection and project cloning
 type LanguageComponent struct {
 	project       *api.Project
-	languages     []string
-	index         int
+	menu          *menu.Component
 	cloning       bool
 	progress      float64
 	errorMsg      string
@@ -32,10 +32,16 @@ func NewLanguageComponent(project *api.Project, fileManager FileManager, configM
 		languages[i] = strings.TrimSpace(languages[i])
 	}
 
+	// Create menu with custom styles to match existing theme
+	languageMenu := menu.New(languages)
+	menuStyles := menu.DefaultStyles()
+	menuStyles.ItemStyle = menuItemStyle
+	menuStyles.SelectedStyle = selectedMenuItemStyle
+	languageMenu.SetStyles(menuStyles)
+
 	return &LanguageComponent{
 		project:       project,
-		languages:     languages,
-		index:         0,
+		menu:          languageMenu,
 		fileManager:   fileManager,
 		configManager: configManager,
 	}
@@ -48,30 +54,24 @@ func (l *LanguageComponent) Init() tea.Cmd {
 
 // Update handles messages for the language component
 func (l *LanguageComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
+	var cmd tea.Cmd
+
+	// Update menu component
+	if !l.cloning {
+		l.menu, cmd = l.menu.Update(msg)
+	}
+
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "up", "k":
-			l.index--
-			if l.index < 0 {
-				l.index = len(l.languages) - 1
-			}
-		case "down", "j":
-			l.index++
-			if l.index >= len(l.languages) {
-				l.index = 0
-			}
-		case "enter":
-			if l.project != nil {
-				l.cloning = true
-				l.errorMsg = ""
-				return l, l.cloneProject(l.project.Name, l.languages[l.index])
-			}
+	case menu.MenuSelectMsg:
+		if l.project != nil {
+			l.cloning = true
+			l.errorMsg = ""
+			return l, l.cloneProject(l.project.Name, msg.SelectedItem)
 		}
 	case cloneCompleteMsg:
 		l.cloning = false
 		return l, tea.Batch(
-			func() tea.Msg { return languageSelectedMsg{language: l.languages[l.index]} },
+			func() tea.Msg { return languageSelectedMsg{language: l.menu.GetSelectedItem()} },
 		)
 	case cloneProgressMsg:
 		l.progress = msg.progress
@@ -82,7 +82,7 @@ func (l *LanguageComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 		return l, nil
 	}
 
-	return l, nil
+	return l, cmd
 }
 
 // View renders the language component
@@ -96,22 +96,14 @@ func (l *LanguageComponent) View() string {
 			progress)
 	}
 
-	menu := headerStyle.Render("\nSelect a language for "+l.project.Name) + "\n\n"
-	for i, lang := range l.languages {
-		cursor := "  "
-		style := menuItemStyle
-		if l.index == i {
-			cursor = "> "
-			style = selectedMenuItemStyle
-		}
-		menu += fmt.Sprintf("%s%s\n", cursor, style.Render(lang))
-	}
-	menu += helpStyle.Render("\nUse ↑/↓ or k/j to move, Enter to select, [esc/b] back, q to quit")
+	view := headerStyle.Render("\nSelect a language for "+l.project.Name) + "\n\n"
+	view += l.menu.View()
+	view += "\n" + helpStyle.Render("Use ↑/↓ or k/j to move, Enter to select, [esc/b] back, q to quit")
 
 	if l.errorMsg != "" {
-		menu += "\n\n" + errorStyle.Render("Error: "+l.errorMsg)
+		view += "\n\n" + errorStyle.Render("Error: "+l.errorMsg)
 	}
-	return menu
+	return view
 }
 
 // cloneProject initiates the git clone operation

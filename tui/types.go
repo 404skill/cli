@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"404skill-cli/tui/components/menu"
 	"404skill-cli/tui/login"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -31,10 +32,8 @@ const (
 // Model represents the main application model
 type Model struct {
 	// State
-	state           State
-	mainMenuIndex   int
-	mainMenuChoices []string
-	selectedAction  MainMenuChoice
+	state          State
+	selectedAction MainMenuChoice
 
 	// Components
 	loginComponent    *login.Component
@@ -42,6 +41,9 @@ type Model struct {
 	languageComponent *LanguageComponent
 	testComponent     *TestComponent
 	help              help.Model
+
+	// Menu components
+	mainMenu *menu.Component
 
 	// State
 	ready    bool
