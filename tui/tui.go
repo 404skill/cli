@@ -14,11 +14,13 @@ import (
 	"404skill-cli/downloader"
 	"404skill-cli/filesystem"
 	"404skill-cli/supabase"
+	"404skill-cli/testrunner"
 	"404skill-cli/tui/components/footer"
 	"404skill-cli/tui/components/menu"
 	"404skill-cli/tui/language"
 	"404skill-cli/tui/login"
 	"404skill-cli/tui/projects"
+	"404skill-cli/tui/test"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -58,7 +60,7 @@ type model struct {
 	loginComponent    *login.Component
 	projectComponent  *projects.Component
 	languageComponent *language.Component
-	testComponent     *TestComponent
+	testComponent     test.Component
 
 	// Menu components
 	mainMenu *menu.Component
@@ -168,7 +170,7 @@ func InitialModel(client api.ClientInterface) model {
 		loading:          false,
 		fileManager:      fileManager,
 		configManager:    configManager,
-		testComponent:    NewTestComponent(fileManager, configManager, client),
+		testComponent:    test.New(testrunner.NewDefaultTestRunner(), configManager, client),
 		footer:           footer.New(),
 		mainMenu:         mainMenu,
 		downloader:       gitDownloader,
@@ -424,10 +426,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case []api.Project:
 			// Pass projects to test component
-			updatedComponent, cmd := m.testComponent.Update(msg)
-			m.testComponent = updatedComponent.(*TestComponent)
+			m.testComponent.SetProjects(msg)
 			m.loading = false
-			return m, cmd
+			return m, nil
 		case errMsg:
 			m.errorMsg = msg.err.Error()
 			m.loading = false
@@ -436,7 +437,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update test component
 		updatedComponent, cmd := m.testComponent.Update(msg)
-		m.testComponent = updatedComponent.(*TestComponent)
+		m.testComponent = updatedComponent
 		return m, cmd
 	}
 
