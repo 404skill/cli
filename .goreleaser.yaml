@@ -93,7 +93,7 @@ chocolateys:
     copyright: 2025 404Skill
 
     # App's license information url.
-    license_url: https://github.com/404skill/cli
+    license_url: https://github.com/404skill/cli/blob/main/LICENSE
 
     # Your apps's require license acceptance:
     # Specify whether the client must prompt the consumer to accept the package
@@ -110,8 +110,8 @@ chocolateys:
     bug_tracker_url: https://github.com/404skill/cli/issues
 
     # Your app's tag list.
-    # must be non empty
-    tags: "cli, 404skill"
+    # must be non empty, space delimited
+    tags: "cli 404skill"
 
     # Your app's summary:
     summary: 404Skill CLI
