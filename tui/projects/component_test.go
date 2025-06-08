@@ -2,6 +2,7 @@ package projects
 
 import (
 	"404skill-cli/api"
+	"404skill-cli/auth"
 	"404skill-cli/config"
 	"404skill-cli/filesystem"
 	"context"
@@ -12,6 +13,19 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// MockAuthService implements config.AuthService for testing
+type MockAuthService struct{}
+
+func (m *MockAuthService) AttemptLogin(ctx context.Context, username, password string) auth.LoginResult {
+	return auth.LoginResult{Success: true, Error: ""}
+}
+
+// Helper function to create a config manager with mock auth for tests
+func newTestConfigManager() *config.ConfigManager {
+	mockAuth := &MockAuthService{}
+	return config.NewConfigManager(mockAuth)
+}
 
 // MockClient implements api.ClientInterface for testing
 type MockClient struct {
@@ -50,7 +64,7 @@ func setupIsolatedConfig(t *testing.T) (*config.ConfigManager, func()) {
 	config.ConfigFilePath = testConfigPath
 
 	// Create an initial config file using the public API
-	manager := config.NewConfigManager()
+	manager := newTestConfigManager()
 	err := manager.UpdateAuthConfig("testuser", "testpass", "test-token")
 	if err != nil {
 		t.Fatalf("Failed to create initial test config: %v", err)
@@ -67,7 +81,7 @@ func setupIsolatedConfig(t *testing.T) (*config.ConfigManager, func()) {
 func TestComponent_New(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 
 	// Act
@@ -120,7 +134,7 @@ func TestComponent_GetProjectStatus_Downloaded(t *testing.T) {
 func TestComponent_GetProjectStatus_NotDownloaded(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -136,7 +150,7 @@ func TestComponent_GetProjectStatus_NotDownloaded(t *testing.T) {
 func TestComponent_SetLoading(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -160,7 +174,7 @@ func TestComponent_SetLoading(t *testing.T) {
 func TestComponent_SetProjects(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -187,7 +201,7 @@ func TestComponent_SetProjects(t *testing.T) {
 func TestComponent_SetError(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -206,7 +220,7 @@ func TestComponent_SetError(t *testing.T) {
 func TestComponent_Update_ProjectsList(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -229,7 +243,7 @@ func TestComponent_Update_ProjectsList(t *testing.T) {
 func TestComponent_Update_ProjectsError(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -319,7 +333,7 @@ func TestComponent_Update_EnterKey_Downloaded_FileNotFound(t *testing.T) {
 func TestComponent_View_Loading(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 	component.SetLoading(true)
@@ -336,7 +350,7 @@ func TestComponent_View_Loading(t *testing.T) {
 func TestComponent_View_WithProjects(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -358,7 +372,7 @@ func TestComponent_View_WithProjects(t *testing.T) {
 func TestComponent_View_WithError(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 	component.SetError("test error")
@@ -375,7 +389,7 @@ func TestComponent_View_WithError(t *testing.T) {
 func TestComponent_UpdateProjectStatus(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -389,7 +403,7 @@ func TestComponent_UpdateProjectStatus(t *testing.T) {
 func TestComponent_GetSelectedProject_NoProjects(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -405,7 +419,7 @@ func TestComponent_GetSelectedProject_NoProjects(t *testing.T) {
 func TestComponent_GetSelectedProject_WithProjects(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 
@@ -428,7 +442,7 @@ func TestComponent_GetSelectedProject_WithProjects(t *testing.T) {
 func TestComponent_HandleDownloadedProject_DirectoryExists(t *testing.T) {
 	// Arrange
 	mockClient := &MockClient{}
-	configManager := config.NewConfigManager()
+	configManager := newTestConfigManager()
 	fileManager := filesystem.NewManager()
 	component := New(mockClient, configManager, fileManager)
 

@@ -2,7 +2,9 @@ package main
 
 import (
 	"404skill-cli/api"
+	"404skill-cli/auth"
 	"404skill-cli/config"
+	"404skill-cli/supabase"
 	"404skill-cli/tui"
 	"fmt"
 	"os"
@@ -11,8 +13,19 @@ import (
 )
 
 func main() {
+	// Create auth dependencies
+	supabaseClient, err := supabase.NewSupabaseClient()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating Supabase client: %v\n", err)
+		os.Exit(1)
+	}
+
+	authProvider := auth.NewSupabaseAuth(supabaseClient)
+	configWriter := config.SimpleConfigWriter{}
+	authService := auth.NewAuthService(authProvider, &configWriter)
+
 	// Create API client with config manager as token provider
-	configManager := config.NewConfigManager()
+	configManager := config.NewConfigManager(authService)
 	client, err := api.NewClient(configManager)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating API client: %v\n", err)

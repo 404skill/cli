@@ -1,16 +1,28 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"time"
+
+	"404skill-cli/auth"
 )
 
-// ConfigManager handles configuration operations
-type ConfigManager struct{}
+// AuthService interface for authentication operations
+type AuthService interface {
+	AttemptLogin(ctx context.Context, username, password string) auth.LoginResult
+}
 
-// NewConfigManager creates a new config manager
-func NewConfigManager() *ConfigManager {
-	return &ConfigManager{}
+// ConfigManager handles configuration operations
+type ConfigManager struct {
+	authService AuthService
+}
+
+// NewConfigManager creates a new config manager with dependency injection
+func NewConfigManager(authService AuthService) *ConfigManager {
+	return &ConfigManager{
+		authService: authService,
+	}
 }
 
 // HasCredentials checks if the config has stored credentials
@@ -87,7 +99,17 @@ func (c *ConfigManager) GetToken() (string, error) {
 	}
 
 	if isTokenExpired(config.LastUpdated) || config.AccessToken == "" {
-		return "", fmt.Errorf("token expired - please log in again")
+		// Attempt to refresh by logging in again
+		result := c.authService.AttemptLogin(context.Background(), config.Username, config.Password)
+		if !result.Success {
+			return "", fmt.Errorf("failed to refresh token: %s", result.Error)
+		}
+
+		// Re-read config to get the updated token
+		config, err = readConfig()
+		if err != nil {
+			return "", fmt.Errorf("failed to read updated config: %w", err)
+		}
 	}
 
 	return config.AccessToken, nil

@@ -1,15 +1,47 @@
 package config
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
+
+	"404skill-cli/auth"
 )
+
+// MockAuthService implements AuthService for testing
+type MockAuthService struct {
+	shouldSucceed bool
+	errorMessage  string
+}
+
+func (m *MockAuthService) AttemptLogin(ctx context.Context, username, password string) auth.LoginResult {
+	if m.shouldSucceed {
+		return auth.LoginResult{Success: true, Error: ""}
+	}
+	return auth.LoginResult{Success: false, Error: m.errorMessage}
+}
+
+func newMockAuthService(shouldSucceed bool, errorMessage string) *MockAuthService {
+	return &MockAuthService{
+		shouldSucceed: shouldSucceed,
+		errorMessage:  errorMessage,
+	}
+}
+
+// Helper function to create a config manager with default mock auth for tests
+func newTestConfigManager() *ConfigManager {
+	mockAuth := newMockAuthService(true, "")
+	return NewConfigManager(mockAuth)
+}
 
 // TestNewConfigManager tests the constructor
 func TestNewConfigManager(t *testing.T) {
+	// Arrange
+	mockAuth := newMockAuthService(true, "")
+
 	// Act
-	manager := NewConfigManager()
+	manager := NewConfigManager(mockAuth)
 
 	// Assert
 	if manager == nil {
@@ -20,7 +52,8 @@ func TestNewConfigManager(t *testing.T) {
 // TestConfigManager_HasCredentials_True tests when credentials exist
 func TestConfigManager_HasCredentials_True(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	mockAuth := newMockAuthService(true, "")
+	manager := NewConfigManager(mockAuth)
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_has_creds_true.yml"
 	defer func() {
@@ -46,7 +79,8 @@ func TestConfigManager_HasCredentials_True(t *testing.T) {
 // TestConfigManager_HasCredentials_False_NoConfig tests when config doesn't exist
 func TestConfigManager_HasCredentials_False_NoConfig(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	mockAuth := newMockAuthService(true, "")
+	manager := NewConfigManager(mockAuth)
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_has_creds_no_config.yml"
 	defer func() {
@@ -63,7 +97,8 @@ func TestConfigManager_HasCredentials_False_NoConfig(t *testing.T) {
 // TestConfigManager_HasCredentials_False_EmptyUsername tests when username is empty
 func TestConfigManager_HasCredentials_False_EmptyUsername(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	mockAuth := newMockAuthService(true, "")
+	manager := NewConfigManager(mockAuth)
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_has_creds_empty_user.yml"
 	defer func() {
@@ -89,7 +124,8 @@ func TestConfigManager_HasCredentials_False_EmptyUsername(t *testing.T) {
 // TestConfigManager_HasCredentials_False_EmptyPassword tests when password is empty
 func TestConfigManager_HasCredentials_False_EmptyPassword(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	mockAuth := newMockAuthService(true, "")
+	manager := NewConfigManager(mockAuth)
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_has_creds_empty_pass.yml"
 	defer func() {
@@ -115,7 +151,7 @@ func TestConfigManager_HasCredentials_False_EmptyPassword(t *testing.T) {
 // TestConfigManager_GetDownloadedProjects_WithProjects tests when downloaded projects exist
 func TestConfigManager_GetDownloadedProjects_WithProjects(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_get_downloaded_with.yml"
 	defer func() {
@@ -153,7 +189,7 @@ func TestConfigManager_GetDownloadedProjects_WithProjects(t *testing.T) {
 // TestConfigManager_GetDownloadedProjects_NoConfig tests when config doesn't exist
 func TestConfigManager_GetDownloadedProjects_NoConfig(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_get_downloaded_no_config.yml"
 	defer func() {
@@ -176,7 +212,7 @@ func TestConfigManager_GetDownloadedProjects_NoConfig(t *testing.T) {
 // TestConfigManager_GetDownloadedProjects_NilMap tests when DownloadedProjects is nil
 func TestConfigManager_GetDownloadedProjects_NilMap(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_get_downloaded_nil.yml"
 	defer func() {
@@ -207,7 +243,7 @@ func TestConfigManager_GetDownloadedProjects_NilMap(t *testing.T) {
 
 func TestConfigManager_UpdateAuthConfig_NewConfig(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 
 	// Create a temporary config file path for testing
 	originalPath := ConfigFilePath
@@ -250,7 +286,7 @@ func TestConfigManager_UpdateAuthConfig_NewConfig(t *testing.T) {
 
 func TestConfigManager_UpdateAuthConfig_PreservesExistingData(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 
 	// Create a temporary config file path for testing
 	originalPath := ConfigFilePath
@@ -314,7 +350,7 @@ func TestConfigManager_UpdateAuthConfig_PreservesExistingData(t *testing.T) {
 
 func TestConfigManager_IsProjectDownloaded(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 
 	// Create a temporary config file path for testing
 	originalPath := ConfigFilePath
@@ -345,7 +381,7 @@ func TestConfigManager_IsProjectDownloaded(t *testing.T) {
 // TestConfigManager_IsProjectDownloaded_NoConfig tests when config doesn't exist
 func TestConfigManager_IsProjectDownloaded_NoConfig(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_is_downloaded_no_config.yml"
 	defer func() {
@@ -362,7 +398,7 @@ func TestConfigManager_IsProjectDownloaded_NoConfig(t *testing.T) {
 // TestConfigManager_IsProjectDownloaded_NilMap tests when DownloadedProjects is nil
 func TestConfigManager_IsProjectDownloaded_NilMap(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_is_downloaded_nil.yml"
 	defer func() {
@@ -387,7 +423,7 @@ func TestConfigManager_IsProjectDownloaded_NilMap(t *testing.T) {
 
 func TestConfigManager_UpdateDownloadedProject(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 
 	// Create a temporary config file path for testing
 	originalPath := ConfigFilePath
@@ -435,7 +471,7 @@ func TestConfigManager_UpdateDownloadedProject(t *testing.T) {
 // TestConfigManager_UpdateDownloadedProject_NoConfig tests when config doesn't exist
 func TestConfigManager_UpdateDownloadedProject_NoConfig(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_update_downloaded_no_config.yml"
 	defer func() {
@@ -455,7 +491,7 @@ func TestConfigManager_UpdateDownloadedProject_NoConfig(t *testing.T) {
 // TestConfigManager_UpdateDownloadedProject_NilMap tests when DownloadedProjects is nil
 func TestConfigManager_UpdateDownloadedProject_NilMap(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_update_downloaded_nil.yml"
 	defer func() {
@@ -500,7 +536,7 @@ func TestConfigManager_UpdateDownloadedProject_NilMap(t *testing.T) {
 // TestConfigManager_GetToken_ValidToken tests when token exists and is not expired
 func TestConfigManager_GetToken_ValidToken(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_get_token_valid.yml"
 	defer func() {
@@ -534,7 +570,7 @@ func TestConfigManager_GetToken_ValidToken(t *testing.T) {
 // TestConfigManager_GetToken_NoConfig tests when config doesn't exist
 func TestConfigManager_GetToken_NoConfig(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	manager := newTestConfigManager()
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_get_token_no_config.yml"
 	defer func() {
@@ -554,7 +590,8 @@ func TestConfigManager_GetToken_NoConfig(t *testing.T) {
 // TestConfigManager_GetToken_EmptyToken tests when token is empty
 func TestConfigManager_GetToken_EmptyToken(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	mockAuth := newMockAuthService(false, "auth failed")
+	manager := NewConfigManager(mockAuth)
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_get_token_empty.yml"
 	defer func() {
@@ -586,7 +623,8 @@ func TestConfigManager_GetToken_EmptyToken(t *testing.T) {
 // TestConfigManager_GetToken_ExpiredToken tests when token is expired
 func TestConfigManager_GetToken_ExpiredToken(t *testing.T) {
 	// Arrange
-	manager := NewConfigManager()
+	mockAuth := newMockAuthService(false, "auth failed")
+	manager := NewConfigManager(mockAuth)
 	originalPath := ConfigFilePath
 	ConfigFilePath = "/tmp/test_get_token_expired.yml"
 	defer func() {

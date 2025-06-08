@@ -136,7 +136,6 @@ func InitialModel(client api.ClientInterface) model {
 	btableModel := btable.New(bubbleTableColumns).WithRows(rows)
 
 	fileManager := filesystem.NewManager()
-	configManager := config.NewConfigManager()
 
 	// Create auth provider for dependency injection
 	supabaseClient, err := supabase.NewSupabaseClient()
@@ -145,6 +144,15 @@ func InitialModel(client api.ClientInterface) model {
 		// In production, you might want to handle this differently
 	}
 	authProvider := auth.NewSupabaseAuth(supabaseClient)
+
+	// Create a basic config writer that doesn't depend on auth service
+	configWriter := config.SimpleConfigWriter{}
+
+	// Create auth service with dependencies
+	authService := auth.NewAuthService(authProvider, &configWriter)
+
+	// Create config manager with auth service dependency
+	configManager := config.NewConfigManager(authService)
 
 	state := stateLogin
 	if configManager.HasCredentials() {
@@ -203,8 +211,17 @@ type tokenRefreshMsg struct {
 
 func refreshTokenCmd() tea.Cmd {
 	return func() tea.Msg {
-		configManager := config.NewConfigManager()
-		_, err := configManager.GetToken()
+		// Create the same auth dependencies as in InitialModel
+		supabaseClient, err := supabase.NewSupabaseClient()
+		if err != nil {
+			return tokenRefreshMsg{err: err}
+		}
+		authProvider := auth.NewSupabaseAuth(supabaseClient)
+		configWriter := config.SimpleConfigWriter{}
+		authService := auth.NewAuthService(authProvider, &configWriter)
+		configManager := config.NewConfigManager(authService)
+
+		_, err = configManager.GetToken()
 		return tokenRefreshMsg{err: err}
 	}
 }
