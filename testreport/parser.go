@@ -88,6 +88,7 @@ func (p *Parser) Parse(reader io.Reader) (*ParseResult, error) {
 			result.Failure = &TestFailure{
 				Message: tc.Failure.Message,
 				Type:    tc.Failure.Type,
+				Content: tc.Failure.Content,
 			}
 			failedTests = append(failedTests, tc.Name)
 		} else {

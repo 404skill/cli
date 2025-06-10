@@ -9,6 +9,7 @@ import (
 	"404skill-cli/api"
 	"404skill-cli/testreport"
 	"404skill-cli/testrunner"
+	"404skill-cli/tui/testresults"
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
@@ -36,10 +37,11 @@ type TestComponent struct {
 	apiClient     APIClient
 
 	// UI State
-	table              btable.Model
-	help               help.Model
-	spinnerFrame       string
-	showingTestResults bool
+	table                btable.Model
+	help                 help.Model
+	spinnerFrame         string
+	showingTestResults   bool
+	testResultsComponent *testresults.TestResultsComponent
 
 	// Data
 	projects           []testrunner.Project
@@ -115,11 +117,35 @@ func (c *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if c.showingTestResults {
-			// Any key returns to project list
-			c.showingTestResults = false
-			c.testResultsSummary = ""
-			c.testResultsList = nil
-			return c, nil
+			// Handle dismissing test results
+			switch msg.String() {
+			case "esc", "b":
+				c.showingTestResults = false
+				c.testResultsComponent = nil
+				return c, nil
+			default:
+				// Delegate to testresults component if it exists
+				if c.testResultsComponent != nil {
+					updatedComponent, cmd := c.testResultsComponent.Update(msg)
+					c.testResultsComponent = updatedComponent.(*testresults.TestResultsComponent)
+
+					// Check for back message
+					if cmd != nil {
+						if backMsg := cmd(); backMsg != nil {
+							if _, ok := backMsg.(testresults.BackToTestListMsg); ok {
+								c.showingTestResults = false
+								c.testResultsComponent = nil
+								return c, nil
+							}
+						}
+					}
+					return c, cmd
+				}
+				// Fallback: any key dismisses results (original behavior)
+				c.showingTestResults = false
+				c.testResultsComponent = nil
+				return c, nil
+			}
 		}
 
 		if c.testing {
@@ -196,6 +222,11 @@ func (c *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 // View renders the component
 func (c *TestComponent) View() string {
 	if c.showingTestResults {
+		if c.testResultsComponent != nil {
+			// Use the enhanced test results component
+			return c.testResultsComponent.View()
+		}
+		// Fallback to original view if component not available
 		var b strings.Builder
 		b.WriteString(c.testResultsSummary)
 		b.WriteString("\n\n")
@@ -237,6 +268,11 @@ func (c *TestComponent) View() string {
 
 // buildTestResultsView constructs the test results display
 func (c *TestComponent) buildTestResultsView(result *testreport.ParseResult) {
+	// Create and configure the enhanced test results component
+	c.testResultsComponent = testresults.New()
+	c.testResultsComponent.SetResults(result)
+
+	// Keep the original summary for API update messages
 	testCount := result.Suite.Tests
 	passedCount := len(result.PassedTests)
 	failedCount := len(result.FailedTests)
@@ -247,27 +283,14 @@ func (c *TestComponent) buildTestResultsView(result *testreport.ParseResult) {
 		headerStyle.Render("Test Results: "+result.Suite.Name),
 		testCount, passedCount, failedCount, testTime,
 	)
-
-	// Build list of all tests with status and time
-	c.testResultsList = nil
-	for _, tr := range result.Suite.Results {
-		status := ""
-		if tr.Passed {
-			status = successStyle.Render("[PASS]")
-		} else {
-			status = errorStyle.Render("[FAIL]")
-		}
-		c.testResultsList = append(c.testResultsList,
-			fmt.Sprintf("%s  %s  (%.2fs)", status, tr.Name, tr.Time))
-	}
 }
 
 // runTestsCmd creates a command to run tests for a project
 func (c *TestComponent) runTestsCmd(project testrunner.Project) tea.Cmd {
 	return func() tea.Msg {
 		progressCallback := func(line string) {
-			// Note: In a real implementation, you'd want to send progress messages
-			// This is simplified for now
+			// Progress callback - could be enhanced to send real-time updates
+			// For now, the enhanced error messages will contain full output
 		}
 
 		result, err := c.testRunner.RunTests(project, progressCallback)

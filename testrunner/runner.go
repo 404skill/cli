@@ -1,11 +1,13 @@
 package testrunner
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"404skill-cli/testreport"
 )
@@ -30,10 +32,11 @@ func (r *DefaultTestRunner) RunTests(project Project, progressCallback func(stri
 		return nil, fmt.Errorf("failed to run tests: %w", err)
 	}
 
-	// Parse test results
+	// Parse test results - this will verify tests actually ran
 	result, err := r.parseTestResults(project, projectDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse test results: %w", err)
+		// If no test report found, docker-compose may have failed silently
+		return nil, fmt.Errorf("tests may not have run properly - no recent test report found: %w", err)
 	}
 
 	return result, nil
@@ -72,12 +75,48 @@ func (r *DefaultTestRunner) runDockerCompose(projectDir string, progressCallback
 	cmd := exec.Command("docker", "compose", "up", "--build", "--abort-on-container-exit")
 	cmd.Dir = projectDir
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker-compose failed: %w", err)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf("Running: docker compose up --build --abort-on-container-exit"))
+		progressCallback(fmt.Sprintf("Working directory: %s", projectDir))
+	}
+
+	cmd.Run()
+	exitCode := cmd.ProcessState.ExitCode()
+
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf("Docker-compose finished with exit code: %d", exitCode))
+		if stdout.Len() > 0 {
+			progressCallback(fmt.Sprintf("STDOUT: %s", stdout.String()))
+		}
+		if stderr.Len() > 0 {
+			progressCallback(fmt.Sprintf("STDERR: %s", stderr.String()))
+		}
+	}
+
+	// Exit code 0 = all tests passed
+	// Exit code 1 = tests ran, but some failed (this is normal!)
+	// Other exit codes = actual docker-compose failure
+	if exitCode != 0 && exitCode != 1 {
+		errorMsg := fmt.Sprintf("docker-compose failed with exit code %d", exitCode)
+		if stdout.Len() > 0 {
+			errorMsg += fmt.Sprintf("\n\n--- STDOUT ---\n%s", stdout.String())
+		}
+		if stderr.Len() > 0 {
+			errorMsg += fmt.Sprintf("\n\n--- STDERR ---\n%s", stderr.String())
+		}
+		return fmt.Errorf("%s", errorMsg)
 	}
 
 	if progressCallback != nil {
-		progressCallback("Tests completed")
+		if exitCode == 0 {
+			progressCallback("✅ All tests passed!")
+		} else {
+			progressCallback("⚠️  Tests completed - some may have failed")
+		}
 	}
 
 	return nil
@@ -101,15 +140,32 @@ func (r *DefaultTestRunner) parseTestResults(project Project, projectDir string)
 	}
 
 	var xmlPath string
+	var mostRecentTime time.Time
+
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".xml") {
-			xmlPath = filepath.Join(reportsDir, entry.Name())
-			break
+			fullPath := filepath.Join(reportsDir, entry.Name())
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+
+			// Find the most recent XML file
+			if info.ModTime().After(mostRecentTime) {
+				mostRecentTime = info.ModTime()
+				xmlPath = fullPath
+			}
 		}
 	}
 
 	if xmlPath == "" {
 		return nil, fmt.Errorf("no XML test report found in %s", reportsDir)
+	}
+
+	// Check if the test report is recent (within last 5 minutes)
+	// This confirms tests actually ran and weren't just old files
+	if time.Since(mostRecentTime) > 5*time.Minute {
+		return nil, fmt.Errorf("test report found but is too old (%v) - tests may not have run", mostRecentTime)
 	}
 
 	parser := testreport.NewParser()

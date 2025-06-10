@@ -197,8 +197,8 @@ func TestTestComponent_Update_KeyHandling(t *testing.T) {
 				if component.showingTestResults {
 					t.Error("Expected showingTestResults to be false after key press")
 				}
-				if component.testResultsSummary != "" {
-					t.Error("Expected testResultsSummary to be cleared")
+				if component.testResultsComponent != nil {
+					t.Error("Expected testResultsComponent to be cleared")
 				}
 			case "ignore":
 				if cmd != nil {
@@ -445,26 +445,9 @@ func TestTestComponent_buildTestResultsView(t *testing.T) {
 		t.Error("Expected summary to contain failed count")
 	}
 
-	if len(component.testResultsList) != 3 {
-		t.Errorf("Expected 3 test results, got %d", len(component.testResultsList))
-	}
-
-	passedCount := 0
-	failedCount := 0
-	for _, result := range component.testResultsList {
-		if strings.Contains(result, "[PASS]") {
-			passedCount++
-		} else if strings.Contains(result, "[FAIL]") {
-			failedCount++
-		}
-	}
-
-	if passedCount != 2 {
-		t.Errorf("Expected 2 passed tests in results list, got %d", passedCount)
-	}
-
-	if failedCount != 1 {
-		t.Errorf("Expected 1 failed test in results list, got %d", failedCount)
+	// Check that the enhanced testresults component was created
+	if component.testResultsComponent == nil {
+		t.Error("Expected testResultsComponent to be created")
 	}
 }
 
