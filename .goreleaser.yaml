@@ -59,199 +59,107 @@ release:
     Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
 
 
-chocolateys:
-  - # Your app's package name.
-    # The value may not contain spaces or character that are not valid for a
-    # URL.
-    # If you want a good separator for words, use '-', not  '.'.
-    #
-    # Default: the project name.
-    name: 404Skill-CLI
-
-    # Your Chocolatey package's source URL.
-    # It points at the location of where someone can find the packaging files
-    # for the package.
-    package_source_url: https://github.com/404skill/cli
-
-    # Your app's owner.
-    # It basically means you.
-    owners: 404Skill
-
-    # Your app's authors (probably you).
-    authors: Eliran Turgeman
-
-    # Your app's project url.
-    # It is a required field.
-    project_url: https://github.com/404skill/cli
-
-    # App's icon.
-    icon_url: "https://example.org/icon.png"
-
-    # Your app's copyright details.
-    #
-    # Templates: allowed.
-    copyright: 2025 404Skill
-
-    # App's license information url.
-    license_url: https://github.com/404skill/cli/blob/main/LICENSE
-
-    # Your apps's require license acceptance:
-    # Specify whether the client must prompt the consumer to accept the package
-    # license before installing.
-    require_license_acceptance: false
-
-    # Your app's source url.
-    project_source_url: https://github.com/404skill/cli
-
-    # Your app's documentation url.
-    docs_url: https://github.com/404skill/cli
-
-    # App's bugtracker url.
-    bug_tracker_url: https://github.com/404skill/cli/issues
-
-    # Your app's tag list.
-    # must be non empty, space delimited
-    tags: "cli 404skill"
-
-    # Your app's summary:
-    summary: 404Skill CLI
-
-    # This the description of your Chocolatey package.
-    # Supports markdown.
-    # must be above 30 chars
-    description: |
-      {{ .ProjectName }} installer package. Utility for https://404skill.github.io/#/
-
-    # Your app's release notes.
-    # A description of the changes made in this release of the package.
-    # Supports markdown. To prevent the need to continually update this field,
-    # providing a URL to an external list of Release Notes is perfectly
-    # acceptable.
-    release_notes: "https://github.com/404skill/cli/releases/tag/v{{ .Version }}"
-
-    # The API key that should be used to push to the Chocolatey repository.
-    #
-    # WARNING: do not expose your api key in the configuration file!
-    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
-
-    # The source repository that will push the package to.
-    source_repo: "https://push.chocolatey.org/"
-
-    # Setting this will prevent GoReleaser to actually try to push the package
-    # to Chocolatey repository, leaving the responsibility of publishing it to
-    # the user.
-    skip_publish: false
-
-# scoops:
-#   - # Name of the recipe
+# chocolateys:
+#   - # Your app's package name.
+#     # The value may not contain spaces or character that are not valid for a
+#     # URL.
+#     # If you want a good separator for words, use '-', not  '.'.
 #     #
 #     # Default: the project name.
-#     # Templates: allowed.
-#     name: 404skill
+#     name: 404Skill-CLI
 
-#     # URL which is determined by the given Token (github or gitlab)
+#     # Your Chocolatey package's source URL.
+#     # It points at the location of where someone can find the packaging files
+#     # for the package.
+#     package_source_url: https://github.com/404skill/cli
+
+#     # Your app's owner.
+#     # It basically means you.
+#     owners: 404Skill
+
+#     # Your app's authors (probably you).
+#     authors: Eliran Turgeman
+
+#     # Your app's project url.
+#     # It is a required field.
+#     project_url: https://github.com/404skill/cli
+
+#     # App's icon.
+#     icon_url: "https://example.org/icon.png"
+
+#     # Your app's copyright details.
 #     #
-#     # Default:
-#     #   GitHub: 'https://github.com/<repo_owner>/<repo_name>/releases/download/{{ .Tag }}/{{ .ArtifactName }}'
-#     #   GitLab: 'https://gitlab.com/<repo_owner>/<repo_name>/-/releases/{{ .Tag }}/downloads/{{ .ArtifactName }}'
-#     #   Gitea: 'https://gitea.com/<repo_owner>/<repo_name>/releases/download/{{ .Tag }}/{{ .ArtifactName }}'
 #     # Templates: allowed.
-#     url_template: "https://github.com/404skill/cli/releases/{{ .Tag }}/{{ .ArtifactName }}"
+#     copyright: 2025 404Skill
 
-#     # Directory inside the repository to put the scoop.
+#     # App's license information url.
+#     license_url: https://github.com/404skill/cli/blob/main/LICENSE
+
+#     # Your apps's require license acceptance:
+#     # Specify whether the client must prompt the consumer to accept the package
+#     # license before installing.
+#     require_license_acceptance: false
+
+#     # Your app's source url.
+#     project_source_url: https://github.com/404skill/cli
+
+#     # Your app's documentation url.
+#     docs_url: https://github.com/404skill/cli
+
+#     # App's bugtracker url.
+#     bug_tracker_url: https://github.com/404skill/cli/issues
+
+#     # Your app's tag list.
+#     # must be non empty, space delimited
+#     tags: "cli 404skill"
+
+#     # Your app's summary:
+#     summary: 404Skill CLI
+
+#     # This the description of your Chocolatey package.
+#     # Supports markdown.
+#     # must be above 30 chars
+#     description: |
+#       {{ .ProjectName }} installer package. Utility for https://404skill.github.io/#/
+
+#     # Your app's release notes.
+#     # A description of the changes made in this release of the package.
+#     # Supports markdown. To prevent the need to continually update this field,
+#     # providing a URL to an external list of Release Notes is perfectly
+#     # acceptable.
+#     release_notes: "https://github.com/404skill/cli/releases/tag/v{{ .Version }}"
+
+#     # The API key that should be used to push to the Chocolatey repository.
 #     #
-#     # Note that while scoop works if the manifests are in a directory,
-#     # 'scoop bucket list' will show 0 manifests if they are not in the root
-#     # directory.
-#     # In short, it's generally better to leave this empty.
-#     directory: ''
+#     # WARNING: do not expose your api key in the configuration file!
+#     api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
 
-#     # Git author used to commit to the repository.
-#     # Templates: allowed.
+#     # The source repository that will push the package to.
+#     source_repo: "https://push.chocolatey.org/"
+
+#     # Setting this will prevent GoReleaser to actually try to push the package
+#     # to Chocolatey repository, leaving the responsibility of publishing it to
+#     # the user.
+#     skip_publish: false
+
+# brews:
+#   - name: 404skill
+#     # A short description for `brew info`
+#     description: "404Skill CLI"
+#     # Your project’s homepage
+#     homepage: https://github.com/404skill/cli
+#     # SPDX license identifier (must match your LICENSE file)
+#     license: "MIT"
+#     # Where to push the generated Formula/*.rb into
+#     tap:
+#       owner: 404skill
+#       name: homebrew-404skill-cli
+#     # Directory in the tap repo where the formula lives
+#     directory: Formula
+#     # Author for the commit
 #     commit_author:
 #       name: goreleaserbot
-#       email: bot@goreleaser.com
-
-#     # The project name and current git tag are used in the format string.
-#     #
-#     # Templates: allowed.
-#     commit_msg_template: "Scoop update for {{ .ProjectName }} version {{ .Tag }}"
-
-#     # Your app's homepage.
-#     #
-#     # Templates: allowed.
-#     # Default: inferred from global metadata.
-#     homepage: "https://github.com/404skill/cli"
-
-#     # Your app's description.
-#     #
-#     # Templates: allowed.
-#     # Default: inferred from global metadata.
-#     description: "404Skill CLI"
-
-#     # Your app's license
-#     #
-#     # Default: inferred from global metadata.
-#     license: MIT
-
-#     # Setting this will prevent goreleaser to actually try to commit the updated
-#     # manifest leaving the responsibility of publishing it to the user.
-#     # If set to auto, the release will not be uploaded to the scoop bucket
-#     # in case there is an indicator for prerelease in the tag e.g. v1.0.0-rc1
-#     #
-#     # Templates: allowed.
-#     skip_upload: false
-
-#     # A two-dimensional array of string, specifies the shortcut values to make available in the startmenu.
-#     # The array has to contain an executable/label pair. The third and fourth element are optional.
-#     shortcuts: [["404skill.exe", "404skill"]]
-
-#     # GOAMD64 to specify which amd64 version to use if there are multiple versions
-#     # from the build section.
-#     #
-#     # Default: 'v1'.
-#     goamd64: v3
-
-#     # Repository to push the generated files to.
-#     repository:
-#       # Repository owner.
-#       #
-#       # Templates: allowed.
-#       owner: 404skill
-
-#       # Repository name.
-#       #
-#       # Templates: allowed.
-#       name: cli
-
-#       # Optionally a branch can be provided.
-#       #
-#       # Default: default repository branch.
-#       # Templates: allowed.
-#       branch: main
-
-#       # Sets up pull request creation instead of just pushing to the given branch.
-#       # Make sure the 'branch' property is different from base before enabling
-#       # it.
-#       #
-#       # This might require a personal access token.
-#       pull_request:
-#         # Whether to enable it or not.
-#         enabled: false
-
-#         # Whether to open the PR as a draft or not.
-#         draft: true
-
-#         # If the pull request template has checkboxes, enabling this will
-#         # check all of them.
-#         #
-#         # This feature is only available in GoReleaser Pro, and when the pull
-#         # request is being opened on GitHub.
-#         check_boxes: true
-
-#         # Base can also be another repository, in which case the owner and name
-#         # above will be used as HEAD, allowing cross-repository pull requests.
-#         base:
-#           owner: goreleaser
-#           name: my-repo
-#           branch: main
+#       email: "[email protected]"
+#     # A simple test so `brew test 404skill-cli` works
+#     test: |
+#       system "#{bin}/404skill", "--version"
