@@ -19,7 +19,7 @@ func GetBaseURL() (string, error) {
 		return "", fmt.Errorf("failed to load environment: %w", err)
 	}
 	env := os.Getenv("ENV")
-	if env == "production" {
+	if env == "PROD" {
 		return os.Getenv("BASE_URL_PROD"), nil
 	}
 	return os.Getenv("BASE_URL_DEV"), nil
