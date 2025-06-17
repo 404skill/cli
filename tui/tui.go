@@ -437,9 +437,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.quitting = true
 				return m, tea.Quit
 			case "esc", "b":
-				m.state = stateMainMenu
-				m.errorMsg = ""
-				return m, nil
+				// Only go back to main menu if we're not showing test results
+				if !m.testComponent.IsShowingTestResults() {
+					m.state = stateMainMenu
+					m.errorMsg = ""
+					return m, nil
+				}
+				// If we are showing test results, let the test component handle it
+				updatedComponent, cmd := m.testComponent.Update(msg)
+				m.testComponent = updatedComponent
+				return m, cmd
 			}
 		case []api.Project:
 			// Pass projects to test component

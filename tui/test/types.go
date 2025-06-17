@@ -42,4 +42,5 @@ type Component interface {
 	Update(tea.Msg) (Component, tea.Cmd)
 	View() string
 	SetProjects([]api.Project)
+	IsShowingTestResults() bool
 }

@@ -122,6 +122,8 @@ func (c *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 			case "esc", "b":
 				c.showingTestResults = false
 				c.testResultsComponent = nil
+				c.testResultsSummary = ""
+				c.testResultsList = nil
 				return c, nil
 			default:
 				// Delegate to testresults component if it exists
@@ -135,15 +137,14 @@ func (c *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 							if _, ok := backMsg.(testresults.BackToTestListMsg); ok {
 								c.showingTestResults = false
 								c.testResultsComponent = nil
+								c.testResultsSummary = ""
+								c.testResultsList = nil
 								return c, nil
 							}
 						}
 					}
 					return c, cmd
 				}
-				// Fallback: any key dismisses results (original behavior)
-				c.showingTestResults = false
-				c.testResultsComponent = nil
 				return c, nil
 			}
 		}
@@ -160,10 +161,17 @@ func (c *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 				if id, ok := selected.Data["id"].(string); ok {
 					for _, p := range c.projects {
 						if p.ID == id {
-							c.testing = true
+							// Clear ALL previous test state
+							c.showingTestResults = false
+							c.testResultsComponent = nil
+							c.testResultsSummary = ""
+							c.testResultsList = nil
 							c.errorMsg = ""
-							c.currentProject = &p
 							c.outputBuffer = nil
+							c.currentProject = nil
+
+							c.testing = true
+							c.currentProject = &p
 							return c, tea.Batch(
 								c.runTestsCmd(p),
 								c.spinnerTick(),
@@ -171,6 +179,11 @@ func (c *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 						}
 					}
 				}
+			}
+		case "esc", "b":
+			// If we're not showing test results, let the parent handle back navigation
+			if !c.showingTestResults {
+				return c, nil
 			}
 		}
 
@@ -344,3 +357,8 @@ func (c *TestComponent) spinnerTick() tea.Cmd {
 
 // API update completion message
 type apiUpdateCompleteMsg struct{ err error }
+
+// IsShowingTestResults returns whether test results are currently being displayed
+func (c *TestComponent) IsShowingTestResults() bool {
+	return c.showingTestResults
+}
