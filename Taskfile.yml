@@ -3,7 +3,7 @@ version: '3'
 vars:
   # Which part of semver to bump: patch (default), minor, or major
   bump: patch
-  bump_description: upgrade version
+  bump_description: "upgrade version"
 
 tasks:
   tag:
@@ -39,7 +39,7 @@ tasks:
 
         # Form the new tag and create it
         newTag="v${major}.${minor}.${patch}"
-        git tag -a "${newTag}" -m {{.bump_description}}
+        git tag -a "${newTag}" -m "{{.bump_description}}"
         git push origin ${newTag}
         echo "Created Git tag ${newTag}"
     silent: true
