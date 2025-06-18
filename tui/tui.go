@@ -136,7 +136,7 @@ var keys = keyMap{
 }
 
 // --- Initial Model ---
-func InitialModel(client api.ClientInterface) model {
+func InitialModel(client api.ClientInterface, version string) model {
 	rows := []btable.Row{}
 	btableModel := btable.New(bubbleTableColumns).WithRows(rows)
 
@@ -171,7 +171,7 @@ func InitialModel(client api.ClientInterface) model {
 	gitDownloader := downloader.NewGitDownloader(fileManager, configManager, client)
 
 	// Create version checker
-	versionChecker := NewVersionChecker()
+	versionChecker := NewVersionChecker(version)
 
 	m := model{
 		state:            state,

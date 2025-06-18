@@ -98,11 +98,6 @@ var (
 			Padding(0, 1)
 )
 
-// USE THIS TO SHOW VERSION INFO FOR THE USER (https://goreleaser.com/cookbooks/using-main.version/?h=ldflag)
-var (
-	version string
-)
-
 // GetASCIIArt returns the ASCII art with version information and update status
 func GetASCIIArt(versionInfo VersionInfo) string {
 	updateMsg := ""
@@ -125,7 +120,7 @@ func GetASCIIArt(versionInfo VersionInfo) string {
 ||                                                                                            ||
 \==============================================================================================/
                                                                         
-Version: ` + version + `
+Version: ` + versionInfo.CurrentVersion + `
 
 ` + updateMsg + `
 

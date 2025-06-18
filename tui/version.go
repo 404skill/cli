@@ -22,6 +22,7 @@ type VersionInfo struct {
 // VersionChecker handles version checking operations
 type VersionChecker struct {
 	httpClient *http.Client
+	version    string
 }
 
 // NPMResponse represents the npm registry response
@@ -32,22 +33,23 @@ type NPMResponse struct {
 }
 
 // NewVersionChecker creates a new version checker
-func NewVersionChecker() *VersionChecker {
+func NewVersionChecker(version string) *VersionChecker {
 	return &VersionChecker{
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		version: version,
 	}
 }
 
 // CheckForUpdates checks if a newer version is available
 func (vc *VersionChecker) CheckForUpdates(ctx context.Context) VersionInfo {
 	info := VersionInfo{
-		CurrentVersion: version,
+		CurrentVersion: vc.version,
 	}
 
 	// Skip check if we're in dev mode
-	if version == "dev" {
+	if vc.version == "dev" {
 		return info
 	}
 
@@ -59,7 +61,7 @@ func (vc *VersionChecker) CheckForUpdates(ctx context.Context) VersionInfo {
 	}
 
 	info.LatestVersion = latestVersion
-	info.UpdateAvailable = vc.isUpdateAvailable(version, latestVersion)
+	info.UpdateAvailable = vc.isUpdateAvailable(vc.version, latestVersion)
 
 	return info
 }

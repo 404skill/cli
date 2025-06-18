@@ -12,6 +12,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// USE THIS TO SHOW VERSION INFO FOR THE USER (https://goreleaser.com/cookbooks/using-main.version/?h=ldflag)
+var (
+	version string
+)
+
 func main() {
 	// Create auth dependencies
 	supabaseClient, err := supabase.NewSupabaseClient()
