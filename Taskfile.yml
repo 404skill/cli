@@ -10,6 +10,28 @@ tasks:
     desc: "Create a new semver Git tag by bumping patch (default), minor, or major. Usage: task tag / task tag bump=minor / task tag bump=major"
     cmds:
       - |
+        # Check for uncommitted changes
+        if [[ -n "$(git status --porcelain)" ]]; then
+          echo "❌ You have uncommitted changes:"
+          git status --short
+          echo ""
+          echo "Please commit your changes before creating a new tag."
+          echo "You can run: git add . && git commit -m 'your message'"
+          exit 1
+        fi
+        
+        # Check if we're up to date with remote
+        git fetch origin
+        if [[ "$(git rev-list HEAD...origin/main --count)" != "0" ]]; then
+          echo "❌ Your local branch is not up to date with origin/main"
+          echo "Please push your changes before creating a new tag."
+          echo "You can run: git push origin main"
+          exit 1
+        fi
+        
+        echo "✅ Repository is clean and up to date"
+        echo ""
+        
         # Get the latest tag (strip leading 'v' if present)
         currentTag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
         currentTag=${currentTag#v}
@@ -39,9 +61,10 @@ tasks:
 
         # Form the new tag and create it
         newTag="v${major}.${minor}.${patch}"
+        echo "Creating tag: ${newTag}"
         git tag -a "${newTag}" -m "{{.bump_description}}"
         git push origin ${newTag}
-        echo "Created Git tag ${newTag}"
+        echo "✅ Created and pushed Git tag ${newTag}"
     silent: true
 
   release:
