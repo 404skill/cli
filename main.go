@@ -38,7 +38,7 @@ func main() {
 	}
 
 	// Initialize and run the TUI
-	p := tea.NewProgram(tui.InitialModel(client), tea.WithAltScreen())
+	p := tea.NewProgram(tui.InitialModel(client, version), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		os.Exit(1)
 	}
