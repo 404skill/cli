@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 // VersionInfo represents version information
@@ -89,15 +91,29 @@ func (vc *VersionChecker) fetchLatestVersion(ctx context.Context) (string, error
 	return npmResp.DistTags.Latest, nil
 }
 
-// isUpdateAvailable compares current and latest versions
+// isUpdateAvailable compares current and latest versions using semantic versioning
 func (vc *VersionChecker) isUpdateAvailable(current, latest string) bool {
 	// Remove 'v' prefix if present
 	current = strings.TrimPrefix(current, "v")
 	latest = strings.TrimPrefix(latest, "v")
 
-	// Simple string comparison for now
-	// In a production environment, you might want to use proper semver parsing
-	return current != latest
+	// Parse current version
+	currentVer, err := semver.NewVersion(current)
+	if err != nil {
+		// If current version can't be parsed, assume it's not a valid semver
+		// and skip the update check
+		return false
+	}
+
+	// Parse latest version
+	latestVer, err := semver.NewVersion(latest)
+	if err != nil {
+		// If latest version can't be parsed, skip the update check
+		return false
+	}
+
+	// Compare versions - return true if latest is greater than current
+	return latestVer.GreaterThan(currentVer)
 }
 
 // GetUpdateMessage returns a formatted update message

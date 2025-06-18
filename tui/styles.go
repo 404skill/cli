@@ -107,7 +107,7 @@ var (
 func GetASCIIArt(versionInfo VersionInfo) string {
 	updateMsg := ""
 	if versionInfo.UpdateAvailable {
-		updateMsg = fmt.Sprintf("  ⬆️  %s", versionInfo.LatestVersion)
+		updateMsg = fmt.Sprintf("Latest version: %s \t Run 'npm update -g 404skill' to upgrade", versionInfo.LatestVersion)
 	}
 
 	return lipgloss.NewStyle().
@@ -124,9 +124,10 @@ func GetASCIIArt(versionInfo VersionInfo) string {
 ||                                        \|_________|                                        ||
 ||                                                                                            ||
 \==============================================================================================/
-                                                                       
-Version: ` + version + updateMsg + `
+                                                                        
+Version: ` + version + `
 
+` + updateMsg + `
 
 `)
 }

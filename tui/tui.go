@@ -26,7 +26,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	btable "github.com/evertras/bubble-table/table"
 )
 
@@ -522,15 +521,6 @@ func (m model) View() string {
 	case stateMainMenu:
 		view := GetASCIIArt(m.versionInfo) + "\n"
 		view += m.mainMenu.View()
-
-		// Add update notification if available
-		if m.versionInfo.UpdateAvailable {
-			updateMsg := fmt.Sprintf("\n%s", lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#00ffaa")). // accent color
-				Bold(true).
-				Render("⬆️  Update available! Run 'npm update -g 404skill' to upgrade"))
-			view += updateMsg
-		}
 
 		view += "\n" + m.footer.View(footer.NavigateBinding, footer.EnterBinding, footer.QuitBinding)
 		return view
