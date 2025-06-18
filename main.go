@@ -14,7 +14,7 @@ import (
 
 // USE THIS TO SHOW VERSION INFO FOR THE USER (https://goreleaser.com/cookbooks/using-main.version/?h=ldflag)
 var (
-	version string
+	version = "dev"
 )
 
 func main() {
