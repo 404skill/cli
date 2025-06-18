@@ -50,6 +50,31 @@ tasks:
       - tag
     cmds:
       - goreleaser release --clean
+      - publish-npm
+
+  publish-npm:
+    desc: "Update version in package.json and publish to npm"
+    cmds:
+      - |
+        # Get the latest tag (strip leading 'v' if present)
+        currentTag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+        newVersion=${currentTag#v}
+        
+        # Update version in package.json using node.js (cross-platform)
+        node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = '$newVersion';
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+        "
+        
+        echo "Updated package.json version to $newVersion"
+        
+        # Publish to npm
+        npm publish --access public
+        
+        echo "Published version $newVersion to npm"
+    silent: true
 
   test:
     desc: "Run all Go tests"

@@ -1,16 +1,18 @@
 {
-    "name": "404skill",          
-    "version": "0.1.16",
-    "description": "404Skill command-line interface",
-    "license": "MIT",
-    "homepage": "https://github.com/404skill/cli",
-    "repository": "github:404skill/cli",
-    "bin": { "404skill": "bin/run.js" },
-    "engines": { "node": ">=18" },
-  
-    "files": [
-      "dist/",
-      "bin/run.js"
-    ]
-  }
-  
+  "name": "404skill",
+  "version": "0.1.17",
+  "description": "404Skill command-line interface",
+  "license": "MIT",
+  "homepage": "https://github.com/404skill/cli",
+  "repository": "github:404skill/cli",
+  "bin": {
+    "404skill": "bin/run.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist/",
+    "bin/run.js"
+  ]
+}
