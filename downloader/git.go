@@ -48,12 +48,27 @@ func (g *GitDownloader) DownloadProject(ctx context.Context, project *api.Projec
 	repoURL := fmt.Sprintf("https://github.com/404skill/%s_%s", repoName, language)
 	targetDir := filepath.Join(projectsDir, fmt.Sprintf("%s_%s", repoName, language))
 
-	// Clone both main project and test repository
-	if err := g.cloneMainProject(ctx, repoURL, targetDir, progressCallback); err != nil {
+	// Create progress callback for main project (0-50%)
+	mainProgressCallback := func(progress float64) {
+		if progressCallback != nil {
+			progressCallback(progress * 0.5) // Scale to 0-50%
+		}
+	}
+
+	// Clone main project repository
+	if err := g.cloneMainProject(ctx, repoURL, targetDir, mainProgressCallback); err != nil {
 		return err
 	}
 
-	if err := g.cloneTestProject(ctx, repoName, language, projectsDir); err != nil {
+	// Create progress callback for test project (50-100%)
+	testProgressCallback := func(progress float64) {
+		if progressCallback != nil {
+			progressCallback(0.5 + progress*0.5) // Scale to 50-100%
+		}
+	}
+
+	// Clone test repository
+	if err := g.cloneTestProject(ctx, repoName, language, projectsDir, testProgressCallback); err != nil {
 		return err
 	}
 
@@ -102,8 +117,12 @@ func (g *GitDownloader) cloneMainProject(ctx context.Context, repoURL, targetDir
 	// Read progress from stderr
 	scanner := bufio.NewScanner(stderr)
 	var cloneError string
+	var lastProgress float64 = 0
+
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Parse different types of progress output
 		if strings.Contains(line, "Receiving objects") {
 			// Parse percentage from line like "Receiving objects: 45% (9/20)"
 			if strings.Contains(line, "%") {
@@ -116,11 +135,51 @@ func (g *GitDownloader) cloneMainProject(ctx context.Context, repoURL, targetDir
 						progressStr = progressStr[spaceIdx+1:]
 					}
 					if progress, err := strconv.ParseFloat(progressStr, 64); err == nil {
+						lastProgress = progress / 100
 						if progressCallback != nil {
-							progressCallback(progress / 100)
+							progressCallback(lastProgress)
 						}
 					}
 				}
+			}
+		} else if strings.Contains(line, "Resolving deltas") {
+			// Parse delta resolution progress
+			if strings.Contains(line, "%") {
+				parts := strings.Split(line, "%")
+				if len(parts) > 0 {
+					progressStr := strings.TrimSpace(parts[0])
+					if spaceIdx := strings.LastIndex(progressStr, " "); spaceIdx != -1 {
+						progressStr = progressStr[spaceIdx+1:]
+					}
+					if progress, err := strconv.ParseFloat(progressStr, 64); err == nil {
+						// Delta resolution is typically the last 20% of the process
+						deltaProgress := (progress / 100) * 0.2
+						lastProgress = 0.8 + deltaProgress
+						if progressCallback != nil {
+							progressCallback(lastProgress)
+						}
+					}
+				}
+			}
+		} else if strings.Contains(line, "Cloning into") {
+			// Initial cloning message
+			if progressCallback != nil {
+				progressCallback(0.0)
+			}
+		} else if strings.Contains(line, "remote: Counting objects") {
+			// Counting objects phase
+			if progressCallback != nil {
+				progressCallback(0.1)
+			}
+		} else if strings.Contains(line, "remote: Compressing objects") {
+			// Compressing objects phase
+			if progressCallback != nil {
+				progressCallback(0.2)
+			}
+		} else if strings.Contains(line, "Unpacking objects") {
+			// Unpacking objects phase
+			if progressCallback != nil {
+				progressCallback(0.6)
 			}
 		} else if strings.Contains(line, "error:") || strings.Contains(line, "fatal:") {
 			cloneError = line
@@ -134,11 +193,16 @@ func (g *GitDownloader) cloneMainProject(ctx context.Context, repoURL, targetDir
 		return fmt.Errorf("git clone failed: %w", err)
 	}
 
+	// Ensure we reach 100% when complete
+	if progressCallback != nil {
+		progressCallback(1.0)
+	}
+
 	return nil
 }
 
 // cloneTestProject clones the test repository
-func (g *GitDownloader) cloneTestProject(ctx context.Context, repoName, language, projectsDir string) error {
+func (g *GitDownloader) cloneTestProject(ctx context.Context, repoName, language, projectsDir string, progressCallback ProgressCallback) error {
 	testRepoURL := fmt.Sprintf("https://github.com/404skill/%s_%s_test", repoName, language)
 	testDir := filepath.Join(projectsDir, ".tests", fmt.Sprintf("%s_%s", repoName, language))
 
@@ -152,10 +216,99 @@ func (g *GitDownloader) cloneTestProject(ctx context.Context, repoName, language
 		return fmt.Errorf("failed to remove existing test directory: %w", err)
 	}
 
-	// Clone test repository
+	// Start git clone with progress output
 	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", testRepoURL, testDir)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to clone test repository: %w", err)
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start git clone: %w", err)
+	}
+
+	// Read progress from stderr
+	scanner := bufio.NewScanner(stderr)
+	var cloneError string
+	var lastProgress float64 = 0
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Parse different types of progress output
+		if strings.Contains(line, "Receiving objects") {
+			// Parse percentage from line like "Receiving objects: 45% (9/20)"
+			if strings.Contains(line, "%") {
+				parts := strings.Split(line, "%")
+				if len(parts) > 0 {
+					// Extract just the number part
+					progressStr := strings.TrimSpace(parts[0])
+					// Find the last space and take everything after it
+					if spaceIdx := strings.LastIndex(progressStr, " "); spaceIdx != -1 {
+						progressStr = progressStr[spaceIdx+1:]
+					}
+					if progress, err := strconv.ParseFloat(progressStr, 64); err == nil {
+						lastProgress = progress / 100
+						if progressCallback != nil {
+							progressCallback(lastProgress)
+						}
+					}
+				}
+			}
+		} else if strings.Contains(line, "Resolving deltas") {
+			// Parse delta resolution progress
+			if strings.Contains(line, "%") {
+				parts := strings.Split(line, "%")
+				if len(parts) > 0 {
+					progressStr := strings.TrimSpace(parts[0])
+					if spaceIdx := strings.LastIndex(progressStr, " "); spaceIdx != -1 {
+						progressStr = progressStr[spaceIdx+1:]
+					}
+					if progress, err := strconv.ParseFloat(progressStr, 64); err == nil {
+						// Delta resolution is typically the last 20% of the process
+						deltaProgress := (progress / 100) * 0.2
+						lastProgress = 0.8 + deltaProgress
+						if progressCallback != nil {
+							progressCallback(lastProgress)
+						}
+					}
+				}
+			}
+		} else if strings.Contains(line, "Cloning into") {
+			// Initial cloning message
+			if progressCallback != nil {
+				progressCallback(0.0)
+			}
+		} else if strings.Contains(line, "remote: Counting objects") {
+			// Counting objects phase
+			if progressCallback != nil {
+				progressCallback(0.1)
+			}
+		} else if strings.Contains(line, "remote: Compressing objects") {
+			// Compressing objects phase
+			if progressCallback != nil {
+				progressCallback(0.2)
+			}
+		} else if strings.Contains(line, "Unpacking objects") {
+			// Unpacking objects phase
+			if progressCallback != nil {
+				progressCallback(0.6)
+			}
+		} else if strings.Contains(line, "error:") || strings.Contains(line, "fatal:") {
+			cloneError = line
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		if cloneError != "" {
+			return fmt.Errorf("git clone failed: %s", cloneError)
+		}
+		return fmt.Errorf("git clone failed: %w", err)
+	}
+
+	// Ensure we reach 100% when complete
+	if progressCallback != nil {
+		progressCallback(1.0)
 	}
 
 	return nil

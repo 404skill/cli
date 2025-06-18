@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -26,6 +28,12 @@ type Component struct {
 	progress    float64
 	errorMsg    string
 	ready       bool
+
+	// Progress state
+	currentOperation string
+
+	// Atomic progress for real-time updates
+	atomicProgress uint64
 }
 
 // New creates a new language component with dependency injection
@@ -73,6 +81,12 @@ func (c *Component) SetDownloading(downloading bool) {
 // SetProgress updates the download progress
 func (c *Component) SetProgress(progress float64) {
 	c.progress = progress
+	atomic.StoreUint64(&c.atomicProgress, uint64(progress*100))
+}
+
+// SetCurrentOperation updates the current operation being performed
+func (c *Component) SetCurrentOperation(operation string) {
+	c.currentOperation = operation
 }
 
 // SetError sets an error message
@@ -84,6 +98,11 @@ func (c *Component) SetError(err string) {
 // GetSelectedLanguage returns the currently selected language
 func (c *Component) GetSelectedLanguage() string {
 	return c.menu.GetSelectedItem()
+}
+
+// GetAtomicProgress returns the current atomic progress
+func (c *Component) GetAtomicProgress() float64 {
+	return float64(atomic.LoadUint64(&c.atomicProgress)) / 100.0
 }
 
 // Update handles component updates
@@ -102,15 +121,18 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 			c.downloading = true
 			c.errorMsg = ""
 			c.progress = 0
+			c.currentOperation = "Starting download..."
 
-			// Start download asynchronously
-			return c, c.startDownload(selectedLanguage)
+			// Start download with progress updates
+			return c, c.downloadWithProgress(selectedLanguage)
 		}
 	case DownloadProgressMsg:
 		c.SetProgress(msg.Progress)
-		return c, nil
+		return c, c.progressTicker() // Continue progress updates
 	case DownloadCompleteMsg:
 		c.downloading = false
+		c.progress = 1.0
+		c.currentOperation = "Download complete!"
 		return c, nil
 	case DownloadErrorMsg:
 		c.SetError(msg.Error)
@@ -125,7 +147,16 @@ func (c *Component) startDownload(language string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
-		err := c.downloader.DownloadProject(ctx, c.project, language, nil)
+		// Create progress callback that updates atomic progress
+		progressCallback := func(progress float64) {
+			// Update atomic progress for real-time updates
+			atomic.StoreUint64(&c.atomicProgress, uint64(progress*100))
+		}
+
+		// Set initial operation
+		c.SetCurrentOperation("Preparing download...")
+
+		err := c.downloader.DownloadProject(ctx, c.project, language, progressCallback)
 		if err != nil {
 			return DownloadErrorMsg{Error: err.Error()}
 		}
@@ -135,6 +166,22 @@ func (c *Component) startDownload(language string) tea.Cmd {
 			Language: language,
 		}
 	}
+}
+
+// progressTicker creates a command that sends progress updates
+func (c *Component) progressTicker() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		// Send current atomic progress
+		return DownloadProgressMsg{Progress: c.GetAtomicProgress()}
+	})
+}
+
+// downloadWithProgress creates a command that downloads with progress updates
+func (c *Component) downloadWithProgress(language string) tea.Cmd {
+	return tea.Batch(
+		c.startDownload(language),
+		c.progressTicker(),
+	)
 }
 
 // View renders the component
@@ -176,8 +223,14 @@ func (c *Component) renderDownloading() string {
 	progress := int(c.progress * 100)
 	progressBar := strings.Repeat("█", progress/10) + strings.Repeat("░", 10-progress/10)
 
-	return fmt.Sprintf("%s\n\nDownloading project...\n[%s] %d%%\n\nPress q to quit",
+	operation := c.currentOperation
+	if operation == "" {
+		operation = "Downloading project..."
+	}
+
+	return fmt.Sprintf("%s\n\n%s\n[%s] %d%%\n\nPress q to quit",
 		headerStyle.Render("Downloading Project"),
+		operation,
 		progressBar,
 		progress)
 }
