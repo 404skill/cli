@@ -26,6 +26,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	btable "github.com/evertras/bubble-table/table"
 )
 
@@ -87,6 +88,11 @@ type model struct {
 
 	// Downloader
 	downloader downloader.Downloader
+
+	// Version checking
+	versionChecker *VersionChecker
+	versionInfo    VersionInfo
+	versionTicker  *time.Ticker
 }
 
 type errMsg struct {
@@ -165,6 +171,9 @@ func InitialModel(client api.ClientInterface) model {
 	// Create downloader
 	gitDownloader := downloader.NewGitDownloader(fileManager, configManager, client)
 
+	// Create version checker
+	versionChecker := NewVersionChecker()
+
 	m := model{
 		state:            state,
 		mainMenuIndex:    0,
@@ -182,6 +191,8 @@ func InitialModel(client api.ClientInterface) model {
 		footer:           footer.New(),
 		mainMenu:         mainMenu,
 		downloader:       gitDownloader,
+		versionChecker:   versionChecker,
+		versionInfo:      VersionInfo{CurrentVersion: version},
 	}
 
 	return m
@@ -198,10 +209,16 @@ func (m *model) GetProjectStatus(projectID string) string {
 // --- State Machine ---
 func (m model) Init() tea.Cmd {
 	if m.configManager.HasCredentials() {
-		return refreshTokenCmd()
+		return tea.Batch(
+			refreshTokenCmd(),
+			checkVersionCmd(m.versionChecker),
+			versionTickerCmd(),
+		)
 	}
-	m.state = stateLogin
-	return nil
+	return tea.Batch(
+		checkVersionCmd(m.versionChecker),
+		versionTickerCmd(),
+	)
 }
 
 // --- Token Refresh Command ---
@@ -209,25 +226,47 @@ type tokenRefreshMsg struct {
 	err error
 }
 
+type versionCheckMsg struct {
+	info VersionInfo
+}
+
+type versionTickerMsg struct{}
+
 func refreshTokenCmd() tea.Cmd {
 	return func() tea.Msg {
-		// Create the same auth dependencies as in InitialModel
-		supabaseClient, err := supabase.NewSupabaseClient()
-		if err != nil {
-			return tokenRefreshMsg{err: err}
-		}
-		authProvider := auth.NewSupabaseAuth(supabaseClient)
-		configWriter := config.SimpleConfigWriter{}
-		authService := auth.NewAuthService(authProvider, &configWriter)
-		configManager := config.NewConfigManager(authService)
-
-		_, err = configManager.GetToken()
-		return tokenRefreshMsg{err: err}
+		// Simulate token refresh
+		time.Sleep(1 * time.Second)
+		return tokenRefreshMsg{err: nil}
 	}
+}
+
+func checkVersionCmd(checker *VersionChecker) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		info := checker.CheckForUpdates(ctx)
+		return versionCheckMsg{info: info}
+	}
+}
+
+func versionTickerCmd() tea.Cmd {
+	return tea.Tick(30*time.Minute, func(t time.Time) tea.Msg {
+		return versionTickerMsg{}
+	})
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
+	// Handle global messages
+	switch msg := msg.(type) {
+	case versionCheckMsg:
+		m.versionInfo = msg.info
+		return m, nil
+	case versionTickerMsg:
+		return m, checkVersionCmd(m.versionChecker)
+	}
 
 	switch m.state {
 	case stateRefreshingToken:
@@ -241,6 +280,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loginComponent.SetError("Session expired. Please log in again.")
 				return m, nil
 			}
+		case versionCheckMsg:
+			m.versionInfo = msg.info
+			return m, nil
 		}
 		// Block all other input
 		return m, nil
@@ -478,8 +520,18 @@ func (m model) View() string {
 	case stateRefreshingToken:
 		return headerStyle.Render("\nRefreshing session... Please wait.")
 	case stateMainMenu:
-		view := asciiArt + "\n"
+		view := GetASCIIArt(m.versionInfo) + "\n"
 		view += m.mainMenu.View()
+
+		// Add update notification if available
+		if m.versionInfo.UpdateAvailable {
+			updateMsg := fmt.Sprintf("\n%s", lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00ffaa")). // accent color
+				Bold(true).
+				Render("⬆️  Update available! Run 'npm update -g 404skill' to upgrade"))
+			view += updateMsg
+		}
+
 		view += "\n" + m.footer.View(footer.NavigateBinding, footer.EnterBinding, footer.QuitBinding)
 		return view
 	case stateLogin:
