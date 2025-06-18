@@ -68,12 +68,12 @@ tasks:
     silent: true
 
   release:
-    desc: "Bump version (via 'tag'), then run goreleaser"
+    desc: "Bump version (via 'tag'), then run goreleaser and publish to npm"
     deps:
       - tag
     cmds:
       - goreleaser release --clean
-      - publish-npm
+      - task publish-npm
 
   publish-npm:
     desc: "Update version in package.json and publish to npm"
