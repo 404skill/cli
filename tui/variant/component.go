@@ -47,6 +47,9 @@ type Component struct {
 	mode             Mode
 	spinnerFrame     string
 	outputBuffer     []string
+	verboseMode      bool
+	highLevelStatus  string
+	filteredMessages []string
 }
 
 func New(variants []api.Project, downloader downloader.Downloader, configManager *config.ConfigManager, fileManager *filesystem.Manager) *Component {
@@ -138,6 +141,14 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 		case spinnerMsg:
 			c.spinnerFrame = msg.frame
 			return c, c.spinnerTick()
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "v":
+				c.verboseMode = !c.verboseMode
+				return c, nil
+			case "q", "ctrl+c":
+				return c, func() tea.Msg { return QuitMsg{} }
+			}
 		}
 		return c, c.spinnerTick()
 	}
@@ -209,11 +220,14 @@ func (c *Component) handleTestAction(variant *api.Project) (*Component, tea.Cmd)
 
 	// Start testing with spinner
 	c.testing = true
+	c.verboseMode = false // Start in simple mode
 	c.currentOperation = "Initializing tests..."
+	c.highLevelStatus = "Preparing to run tests..."
 	c.spinnerFrame = spinnerFrames[0]
-	c.outputBuffer = []string{} // Clear previous output
-	c.errorMsg = ""             // Clear previous errors
-	c.infoMsg = ""              // Clear previous info
+	c.outputBuffer = []string{}     // Clear previous output
+	c.filteredMessages = []string{} // Clear previous filtered messages
+	c.errorMsg = ""                 // Clear previous errors
+	c.infoMsg = ""                  // Clear previous info
 	return c, tea.Batch(
 		c.startTest(variant),
 		c.spinnerTick(),
@@ -259,14 +273,9 @@ func (c *Component) startTest(variant *api.Project) tea.Cmd {
 			Language: variant.Language,
 		}
 
-		// Progress callback for test runner - update component state
+		// Progress callback for test runner - update component state with filtering
 		progressCallback := func(message string) {
-			c.outputBuffer = append(c.outputBuffer, message)
-			c.currentOperation = message
-			// Keep only last 10 messages to prevent memory issues
-			if len(c.outputBuffer) > 10 {
-				c.outputBuffer = c.outputBuffer[len(c.outputBuffer)-10:]
-			}
+			c.processProgressMessage(message)
 		}
 
 		// Run tests
@@ -277,6 +286,81 @@ func (c *Component) startTest(variant *api.Project) tea.Cmd {
 
 		return TestCompleteMsg{Variant: variant, Result: result}
 	}
+}
+
+// Helper methods for message processing
+func (c *Component) extractHighLevelStatus(message string) string {
+	// Extract high-level status from common patterns
+	if strings.Contains(message, "> Task :test") {
+		if strings.Contains(message, "UP-TO-DATE") {
+			return "Tests are up-to-date"
+		} else if strings.Contains(message, "NO-SOURCE") {
+			return "No test sources found"
+		} else {
+			return "Running tests..."
+		}
+	}
+	if strings.Contains(message, "> Task :build") {
+		return "Building project..."
+	}
+	if strings.Contains(message, "> Task :compile") {
+		return "Compiling sources..."
+	}
+	if strings.Contains(message, "BUILD SUCCESSFUL") {
+		return "✅ Build completed successfully"
+	}
+	if strings.Contains(message, "BUILD FAILED") {
+		return "❌ Build failed"
+	}
+	if strings.Contains(message, "Starting docker-compose") {
+		return "Starting Docker containers..."
+	}
+	if strings.Contains(message, "Docker-compose finished") {
+		return "Docker containers finished"
+	}
+	return ""
+}
+
+func (c *Component) shouldShowInBasicMode(message string) bool {
+	// Hide Docker build noise
+	dockerNoisePatterns := []string{
+		"#", "CACHED", "DONE ", "exporting layers", "writing image",
+		"transferring context", "transferring dockerfile", "FromAsCasing",
+		"internal] load", "auth]", "resolving provenance", "pull token",
+		"Container .* Recreat", "Attaching to",
+	}
+
+	for _, pattern := range dockerNoisePatterns {
+		if strings.Contains(message, pattern) {
+			return false
+		}
+	}
+
+	// Show meaningful content
+	meaningfulPatterns := []string{
+		"> Task :", "BUILD ", "actionable tasks:", "exited with code",
+		"Starting", "Stopping", "Stopped", "ERROR", "FAILED", "SUCCESS",
+	}
+
+	for _, pattern := range meaningfulPatterns {
+		if strings.Contains(message, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (c *Component) cleanMessage(message string) string {
+	// Remove prefixes like "OUT: " and "ERR: "
+	cleaned := strings.TrimSpace(message)
+	if strings.HasPrefix(cleaned, "OUT: ") {
+		cleaned = strings.TrimPrefix(cleaned, "OUT: ")
+	}
+	if strings.HasPrefix(cleaned, "ERR: ") {
+		cleaned = strings.TrimPrefix(cleaned, "ERR: ")
+	}
+	return cleaned
 }
 
 func (c *Component) progressTicker() tea.Cmd {
@@ -362,22 +446,45 @@ func (c *Component) renderTestingSpinner() string {
 		Foreground(lipgloss.Color("#ffffff")).
 		Padding(0, 1)
 
-	// Show recent output from test runner
-	output := ""
-	if len(c.outputBuffer) > 0 {
-		// Show last 8 lines of output for better visibility
-		start := 0
-		if len(c.outputBuffer) > 8 {
-			start = len(c.outputBuffer) - 8
+	modeStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#888888")).
+		Italic(true)
+
+	// Header with spinner
+	header := style.Render("Testing Project") + "\n" +
+		spinnerStyle.Render(c.spinnerFrame) + " " + style.Render(c.highLevelStatus)
+
+	// Mode indicator and instructions
+	var modeInfo string
+	var output string
+
+	if c.verboseMode {
+		// Verbose mode - show all output
+		modeInfo = modeStyle.Render("(Verbose Mode - showing all output)")
+		if len(c.outputBuffer) > 0 {
+			// Show last 10 lines of full output
+			start := 0
+			if len(c.outputBuffer) > 10 {
+				start = len(c.outputBuffer) - 10
+			}
+			outputLines := c.outputBuffer[start:]
+			output = "\n" + outputStyle.Render(strings.Join(outputLines, "\n"))
 		}
-		outputLines := c.outputBuffer[start:]
-		output = "\n" + outputStyle.Render(strings.Join(outputLines, "\n"))
+	} else {
+		// Simple mode - show filtered meaningful content
+		modeInfo = modeStyle.Render("(Simple Mode - showing key updates)")
+		if len(c.filteredMessages) > 0 {
+			output = "\n" + outputStyle.Render(strings.Join(c.filteredMessages, "\n"))
+		}
 	}
 
-	return style.Render("Testing Project") + "\n" +
-		spinnerStyle.Render(c.spinnerFrame) + " " + style.Render("Running tests...") +
-		output + "\n\n" +
-		style.Render("Press q to quit")
+	// Footer with controls
+	controlsStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#666666"))
+
+	controls := controlsStyle.Render("Press [v] to toggle verbose mode • [q] to quit")
+
+	return header + "\n" + modeInfo + output + "\n\n" + controls
 }
 
 func (c *Component) renderInfo() string {
@@ -409,3 +516,38 @@ type QuitMsg struct{}
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type spinnerMsg struct{ frame string }
+
+// processProgressMessage handles incoming progress messages and updates component state
+func (c *Component) processProgressMessage(message string) {
+	// Always store full message for verbose mode
+	c.outputBuffer = append(c.outputBuffer, message)
+	// Keep only last 20 messages to prevent memory issues
+	if len(c.outputBuffer) > 20 {
+		c.outputBuffer = c.outputBuffer[len(c.outputBuffer)-20:]
+	}
+
+	// Update high-level status for simple mode
+	if status := c.extractHighLevelStatus(message); status != "" {
+		c.highLevelStatus = status
+	}
+
+	// Store filtered message for basic mode
+	if c.shouldShowInBasicMode(message) {
+		c.filteredMessages = append(c.filteredMessages, c.cleanMessage(message))
+		// Keep only last 8 filtered messages
+		if len(c.filteredMessages) > 8 {
+			c.filteredMessages = c.filteredMessages[len(c.filteredMessages)-8:]
+		}
+	}
+
+	c.currentOperation = message
+}
+
+// Getter methods
+func (c *Component) IsTesting() bool {
+	return c.testing
+}
+
+func (c *Component) IsDownloading() bool {
+	return c.downloading
+}

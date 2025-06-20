@@ -62,7 +62,12 @@ func (c *Controller) renderProjectNameMenu() string {
 
 func (c *Controller) renderProjectVariantMenu() string {
 	if c.variantComponent != nil {
-		return c.variantComponent.View() + "\n" + c.footer.View(c.footerBindings.NavigationWithBack()...)
+		componentView := c.variantComponent.View()
+		// Don't show footer when downloading (component handles its own controls)
+		if c.variantComponent.IsDownloading() {
+			return componentView
+		}
+		return componentView + "\n" + c.footer.View(c.footerBindings.NavigationWithBack()...)
 	}
 	return "No variants available."
 }
@@ -101,7 +106,12 @@ func (c *Controller) renderTestProjectNameMenu() string {
 
 func (c *Controller) renderTestProjectVariantMenu() string {
 	if c.testVariantComponent != nil {
-		return c.testVariantComponent.View() + "\n" + c.footer.View(c.footerBindings.NavigationWithBack()...)
+		componentView := c.testVariantComponent.View()
+		// Don't show footer when testing (component handles its own controls)
+		if c.testVariantComponent.IsTesting() {
+			return componentView
+		}
+		return componentView + "\n" + c.footer.View(c.footerBindings.NavigationWithBack()...)
 	}
 	return "No variants available."
 }

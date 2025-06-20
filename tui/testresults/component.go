@@ -360,13 +360,12 @@ func (c *TestResultsComponent) formatTestLine(item TestResultItem) string {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Toggle, k.PageUp, k.PageDown, k.Back}
+	return []key.Binding{k.Up, k.Down, k.Toggle, k.Back, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Expand, k.Collapse, k.Toggle},
-		{k.PageUp, k.PageDown, k.ScrollUp, k.ScrollDown},
 		{k.NextSection, k.Back, k.Quit},
 	}
 }

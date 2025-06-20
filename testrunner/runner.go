@@ -13,11 +13,15 @@ import (
 )
 
 // DefaultTestRunner implements TestRunner using docker-compose
-type DefaultTestRunner struct{}
+type DefaultTestRunner struct {
+	logFilter *LogFilter
+}
 
 // NewDefaultTestRunner creates a new test runner
 func NewDefaultTestRunner() *DefaultTestRunner {
-	return &DefaultTestRunner{}
+	return &DefaultTestRunner{
+		logFilter: NewLogFilter(),
+	}
 }
 
 // RunTests executes tests for a project using docker-compose
@@ -40,7 +44,7 @@ func (r *DefaultTestRunner) RunTests(project Project, progressCallback func(stri
 		}
 	}()
 
-	// Run docker-compose
+	// Run docker-compose with filtered output
 	if err := r.runDockerCompose(projectDir, logFile, progressCallback); err != nil {
 		return nil, fmt.Errorf("failed to run tests: %w", err)
 	}
