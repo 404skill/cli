@@ -6,6 +6,7 @@ import (
 	"404skill-cli/downloader"
 	"404skill-cli/filesystem"
 	"404skill-cli/testrunner"
+	"404skill-cli/tracing"
 	"context"
 	"fmt"
 	"os"
@@ -50,6 +51,7 @@ type Component struct {
 	verboseMode      bool
 	highLevelStatus  string
 	filteredMessages []string
+	tracer           *tracing.TUIIntegration
 }
 
 func New(variants []api.Project, downloader downloader.Downloader, configManager *config.ConfigManager, fileManager *filesystem.Manager) *Component {
@@ -61,6 +63,12 @@ func NewForTesting(variants []api.Project, testRunner testrunner.TestRunner, con
 }
 
 func NewWithMode(variants []api.Project, downloader downloader.Downloader, testRunner testrunner.TestRunner, configManager *config.ConfigManager, fileManager *filesystem.Manager, mode Mode) *Component {
+	// Get tracing integration from global manager
+	var tuiTracer *tracing.TUIIntegration
+	if manager := tracing.GetGlobalManager(); manager != nil {
+		tuiTracer = tracing.NewTUIIntegration(manager)
+	}
+
 	columns := []btable.Column{
 		btable.NewColumn("desc", "Description", 32),
 		btable.NewColumn("tech", "Technologies", 24),
@@ -75,7 +83,8 @@ func NewWithMode(variants []api.Project, downloader downloader.Downloader, testR
 		}))
 	}
 	table := btable.New(columns).WithRows(rows).Focused(true)
-	return &Component{
+
+	component := &Component{
 		variants:      variants,
 		configManager: configManager,
 		fileManager:   fileManager,
@@ -84,7 +93,19 @@ func NewWithMode(variants []api.Project, downloader downloader.Downloader, testR
 		table:         table,
 		selectedIdx:   0,
 		mode:          mode,
+		tracer:        tuiTracer,
 	}
+
+	// Track component initialization
+	if tuiTracer != nil {
+		modeStr := "download"
+		if mode == TestMode {
+			modeStr = "test"
+		}
+		_ = tuiTracer.TrackProjectOperation("variant_component_init", fmt.Sprintf("%s_mode", modeStr))
+	}
+
+	return component
 }
 
 func (c *Component) SetDownloading(downloading bool) {
@@ -117,10 +138,16 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 			c.SetProgress(msg.Progress)
 			return c, c.progressTicker()
 		case DownloadCompleteMsg:
+			if c.tracer != nil {
+				_ = c.tracer.TrackProjectOperation("download_complete", msg.Variant.Name)
+			}
 			c.downloading = false
 			c.selectedVariant = msg.Variant
 			return c, nil
 		case DownloadErrorMsg:
+			if c.tracer != nil {
+				_ = c.tracer.TrackError(fmt.Errorf("%s", msg.Error), "variant", "download")
+			}
 			c.downloading = false
 			c.errorMsg = msg.Error
 			return c, nil
@@ -131,10 +158,16 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 	if c.testing {
 		switch msg := msg.(type) {
 		case TestCompleteMsg:
+			if c.tracer != nil {
+				_ = c.tracer.TrackProjectOperation("test_complete", msg.Variant.Name)
+			}
 			c.testing = false
 			c.selectedVariant = msg.Variant
 			return c, nil
 		case TestErrorMsg:
+			if c.tracer != nil {
+				_ = c.tracer.TrackError(fmt.Errorf("%s", msg.Error), "variant", "test")
+			}
 			c.testing = false
 			c.errorMsg = msg.Error
 			return c, nil
@@ -144,9 +177,15 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 		case tea.KeyMsg:
 			switch msg.String() {
 			case "v":
+				if c.tracer != nil {
+					_ = c.tracer.TrackKeyMsg(msg, "variant_testing_verbose_toggle")
+				}
 				c.verboseMode = !c.verboseMode
 				return c, nil
 			case "q", "ctrl+c":
+				if c.tracer != nil {
+					_ = c.tracer.TrackKeyMsg(msg, "variant_testing_quit")
+				}
 				return c, func() tea.Msg { return QuitMsg{} }
 			}
 		}
@@ -158,14 +197,23 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 	if m, ok := msg.(tea.KeyMsg); ok {
 		switch m.String() {
 		case "up", "k":
+			if c.tracer != nil {
+				_ = c.tracer.TrackKeyMsg(m, "variant_navigation")
+			}
 			if c.selectedIdx > 0 {
 				c.selectedIdx--
 			}
 		case "down", "j":
+			if c.tracer != nil {
+				_ = c.tracer.TrackKeyMsg(m, "variant_navigation")
+			}
 			if c.selectedIdx < len(c.variants)-1 {
 				c.selectedIdx++
 			}
 		case "enter":
+			if c.tracer != nil {
+				_ = c.tracer.TrackKeyMsg(m, "variant_selection")
+			}
 			if c.selectedIdx >= 0 && c.selectedIdx < len(c.variants) {
 				variant := c.variants[c.selectedIdx]
 				if c.mode == DownloadMode {
@@ -175,8 +223,14 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 				}
 			}
 		case "esc", "b":
+			if c.tracer != nil {
+				_ = c.tracer.TrackKeyMsg(m, "variant_back_navigation")
+			}
 			return c, func() tea.Msg { return BackMsg{} }
 		case "q", "ctrl+c":
+			if c.tracer != nil {
+				_ = c.tracer.TrackKeyMsg(m, "variant_quit")
+			}
 			return c, func() tea.Msg { return QuitMsg{} }
 		}
 	}
@@ -184,7 +238,16 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 }
 
 func (c *Component) handleDownloadAction(variant *api.Project) (*Component, tea.Cmd) {
+	// Track download action initiation
+	if c.tracer != nil {
+		_ = c.tracer.TrackMenuNavigation("variant_table", "download_action", variant.Name)
+	}
+
 	if c.configManager != nil && c.configManager.IsProjectDownloaded(variant.ID) {
+		if c.tracer != nil {
+			_ = c.tracer.TrackProjectOperation("project_already_downloaded", variant.Name)
+		}
+
 		if c.fileManager != nil {
 			homeDir, err := os.UserHomeDir()
 			if err == nil {
@@ -200,6 +263,10 @@ func (c *Component) handleDownloadAction(variant *api.Project) (*Component, tea.
 						}
 					}
 					if projectDir != "" {
+						if c.tracer != nil {
+							fileTracker := c.tracer.TrackFileOperation("open_project_directory", projectDir)
+							_ = fileTracker.Complete()
+						}
 						_ = c.fileManager.OpenFileExplorer(projectDir)
 					}
 				}
@@ -208,14 +275,33 @@ func (c *Component) handleDownloadAction(variant *api.Project) (*Component, tea.
 		c.infoMsg = "Project already downloaded. Opening project directory..."
 		return c, nil
 	}
+
+	// Track new download initiation
+	if c.tracer != nil {
+		_ = c.tracer.TrackProjectOperation("download_start", variant.Name)
+	}
+
 	return c, c.downloadWithProgress(variant)
 }
 
 func (c *Component) handleTestAction(variant *api.Project) (*Component, tea.Cmd) {
+	// Track test action initiation
+	if c.tracer != nil {
+		_ = c.tracer.TrackMenuNavigation("variant_table", "test_action", variant.Name)
+	}
+
 	// Check if project is downloaded
 	if c.configManager == nil || !c.configManager.IsProjectDownloaded(variant.ID) {
+		if c.tracer != nil {
+			_ = c.tracer.TrackError(fmt.Errorf("project not downloaded"), "variant", "test_prerequisite_check")
+		}
 		c.errorMsg = "Project must be downloaded before testing. Please download it first."
 		return c, nil
+	}
+
+	// Track test initiation
+	if c.tracer != nil {
+		_ = c.tracer.TrackProjectOperation("test_start", variant.Name)
 	}
 
 	// Start testing with spinner
@@ -250,6 +336,15 @@ func (c *Component) testWithProgress(variant *api.Project) tea.Cmd {
 
 func (c *Component) startDownload(variant *api.Project) tea.Cmd {
 	return func() tea.Msg {
+		// Track download operation
+		var downloadTracker *tracing.TimedOperationTracker
+		if c.tracer != nil {
+			downloadTracker = c.tracer.TrackProjectOperation("download_execution", variant.Name)
+			downloadTracker.AddMetadata("project_id", variant.ID)
+			downloadTracker.AddMetadata("language", variant.Language)
+			downloadTracker.AddMetadata("difficulty", variant.Difficulty)
+		}
+
 		ctx := context.Background()
 		progressCallback := func(progress float64) {
 			atomic.StoreUint64(&c.atomicProgress, uint64(progress*100))
@@ -257,15 +352,33 @@ func (c *Component) startDownload(variant *api.Project) tea.Cmd {
 		c.SetDownloading(true)
 		c.currentOperation = "Cloning project..."
 		err := c.downloader.DownloadProject(ctx, variant, variant.Language, progressCallback)
+
 		if err != nil {
+			if downloadTracker != nil {
+				_ = downloadTracker.CompleteWithError(err)
+			}
 			return DownloadErrorMsg{Error: err.Error()}
 		}
+
+		if downloadTracker != nil {
+			_ = downloadTracker.Complete()
+		}
+
 		return DownloadCompleteMsg{Variant: variant}
 	}
 }
 
 func (c *Component) startTest(variant *api.Project) tea.Cmd {
 	return func() tea.Msg {
+		// Track test operation
+		var testTracker *tracing.TimedOperationTracker
+		if c.tracer != nil {
+			testTracker = c.tracer.TrackProjectOperation("test_execution", variant.Name)
+			testTracker.AddMetadata("project_id", variant.ID)
+			testTracker.AddMetadata("language", variant.Language)
+			testTracker.AddMetadata("difficulty", variant.Difficulty)
+		}
+
 		// Convert api.Project to testrunner.Project
 		testProject := testrunner.Project{
 			ID:       variant.ID,
@@ -281,7 +394,14 @@ func (c *Component) startTest(variant *api.Project) tea.Cmd {
 		// Run tests
 		result, err := c.testRunner.RunTests(testProject, progressCallback)
 		if err != nil {
+			if testTracker != nil {
+				_ = testTracker.CompleteWithError(err)
+			}
 			return TestErrorMsg{Error: err.Error()}
+		}
+
+		if testTracker != nil {
+			_ = testTracker.Complete()
 		}
 
 		return TestCompleteMsg{Variant: variant, Result: result}

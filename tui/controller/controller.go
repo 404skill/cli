@@ -9,6 +9,7 @@ import (
 	"404skill-cli/supabase"
 	"404skill-cli/testreport"
 	"404skill-cli/testrunner"
+	"404skill-cli/tracing"
 	"404skill-cli/tui/components/footer"
 	"404skill-cli/tui/components/menu"
 	"404skill-cli/tui/domain"
@@ -19,7 +20,7 @@ import (
 	"404skill-cli/tui/state"
 	"404skill-cli/tui/test"
 	"404skill-cli/tui/variant"
-	"time"
+	"fmt"
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,6 +43,9 @@ type Controller struct {
 	// Key handling
 	keyHandler     *keys.Handler
 	footerBindings *keys.FooterBindings
+
+	// Tracing integration
+	tracer *tracing.TUIIntegration
 
 	// Components
 	loginComponent       *login.Component
@@ -74,20 +78,28 @@ type Controller struct {
 	errorMsg            string
 	quitting            bool
 	versionInfo         VersionInfo
-	versionTicker       *time.Ticker
 
 	// Legacy table support (to be removed)
 	table btable.Model
 }
 
 // New creates a new TUI controller
-func New(client api.ClientInterface, version string) (*Controller, error) {
+func New(client api.ClientInterface, version string, tracer *tracing.TUIIntegration) (*Controller, error) {
+	// Track controller initialization
+	var initTracker *tracing.TimedOperationTracker
+	if tracer != nil {
+		initTracker = tracer.TrackProjectOperation("controller_init", "tui_controller")
+	}
+
 	// Initialize dependencies
 	fileManager := filesystem.NewManager()
 
 	// Create auth provider for dependency injection
 	supabaseClient, err := supabase.NewSupabaseClient()
 	if err != nil {
+		if tracer != nil {
+			_ = tracer.TrackError(err, "controller", "supabase_client_creation")
+		}
 		// Handle error appropriately - for now we'll continue with nil
 		// In production, you might want to handle this differently
 	}
@@ -106,6 +118,12 @@ func New(client api.ClientInterface, version string) (*Controller, error) {
 	initialState := state.Login
 	if configManager.HasCredentials() {
 		initialState = state.RefreshingToken
+	}
+
+	// Track initial state determination
+	if tracer != nil {
+		stateStr := initialState.String()
+		_ = tracer.TrackStateChange("", stateStr, "initial_state_determination")
 	}
 
 	// Create state machine
@@ -144,6 +162,7 @@ func New(client api.ClientInterface, version string) (*Controller, error) {
 		stateMachine:        stateMachine,
 		keyHandler:          keyHandler,
 		footerBindings:      footerBindings,
+		tracer:              tracer,
 		loginComponent:      loginComponent,
 		projectComponent:    projectComponent,
 		testComponent:       testComponent,
@@ -162,6 +181,11 @@ func New(client api.ClientInterface, version string) (*Controller, error) {
 		versionChecker:      versionChecker,
 		versionInfo:         VersionInfo{CurrentVersion: version},
 		table:               btableModel,
+	}
+
+	// Complete initialization tracking
+	if initTracker != nil {
+		_ = initTracker.Complete()
 	}
 
 	return controller, nil
@@ -186,6 +210,7 @@ func (c *Controller) Update(msg tea.Msg) (*Controller, tea.Cmd) {
 	// Handle global quit
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && c.keyHandler.IsQuit(keyMsg) {
 		c.quitting = true
+		c.cleanup() // Add cleanup before quitting
 		return c, tea.Quit
 	}
 
@@ -207,7 +232,9 @@ func (c *Controller) Update(msg tea.Msg) (*Controller, tea.Cmd) {
 
 // handleStateUpdate delegates message handling based on current state
 func (c *Controller) handleStateUpdate(msg tea.Msg) (*Controller, tea.Cmd) {
-	switch c.stateMachine.Current() {
+	currentState := c.stateMachine.Current()
+
+	switch currentState {
 	case state.RefreshingToken:
 		return c.handleRefreshingTokenState(msg)
 	case state.MainMenu:
@@ -234,8 +261,15 @@ func (c *Controller) handleRefreshingTokenState(msg tea.Msg) (*Controller, tea.C
 	switch msg := msg.(type) {
 	case TokenRefreshMsg:
 		if msg.Error == nil {
+			if c.tracer != nil {
+				_ = c.tracer.TrackStateChange("refreshing_token", "main_menu", "token_refresh_success")
+			}
 			return c, c.stateMachine.Transition(state.MainMenu)
 		} else {
+			if c.tracer != nil {
+				_ = c.tracer.TrackError(msg.Error, "controller", "token_refresh")
+				_ = c.tracer.TrackStateChange("refreshing_token", "login", "token_refresh_failed")
+			}
 			c.loginComponent.SetError("Session expired. Please log in again.")
 			return c, c.stateMachine.Transition(state.Login)
 		}
@@ -257,20 +291,42 @@ func (c *Controller) handleMainMenuState(msg tea.Msg) (*Controller, tea.Cmd) {
 		c.selectedAction = MainMenuAction(msg.SelectedIndex)
 		c.loading = true
 
+		// Track menu selection
+		if c.tracer != nil {
+			actionName := "download_project"
+			if c.selectedAction == TestProject {
+				actionName = "test_project"
+			}
+			_ = c.tracer.TrackMenuNavigation("main_menu", "select", actionName)
+		}
+
 		if c.selectedAction == TestProject {
+			if c.tracer != nil {
+				_ = c.tracer.TrackStateChange("main_menu", "test_project_name_menu", "test_project_selected")
+			}
 			return c, tea.Batch(
 				c.stateMachine.Transition(state.TestProjectNameMenu),
 				c.projectService.FetchProjects(),
 			)
 		} else {
+			if c.tracer != nil {
+				_ = c.tracer.TrackStateChange("main_menu", "project_name_menu", "download_project_selected")
+			}
 			return c, tea.Batch(
 				c.stateMachine.Transition(state.ProjectNameMenu),
 				c.projectService.FetchProjects(),
 			)
 		}
 	case login.LoginSuccessMsg:
+		if c.tracer != nil {
+			_ = c.tracer.TrackStateChange("login", "main_menu", "login_success")
+		}
 		return c, c.stateMachine.Transition(state.MainMenu)
 	case login.LoginErrorMsg:
+		if c.tracer != nil {
+			_ = c.tracer.TrackError(fmt.Errorf("%s", msg.Error), "controller", "login")
+			_ = c.tracer.TrackStateChange("main_menu", "login", "login_error")
+		}
 		c.loginComponent.SetError(msg.Error)
 		return c, c.stateMachine.Transition(state.Login)
 	}
@@ -286,6 +342,7 @@ func (c *Controller) handleLoginState(msg tea.Msg) (*Controller, tea.Cmd) {
 	case tea.KeyMsg:
 		if c.keyHandler.IsQuit(msg) {
 			c.quitting = true
+			c.cleanup() // Add cleanup before quitting
 			return c, tea.Quit
 		}
 		// Delegate all other login input to the login component
@@ -293,8 +350,14 @@ func (c *Controller) handleLoginState(msg tea.Msg) (*Controller, tea.Cmd) {
 		c.loginComponent = updatedComponent
 		return c, cmd
 	case login.LoginSuccessMsg:
+		if c.tracer != nil {
+			_ = c.tracer.TrackStateChange("login", "main_menu", "login_success")
+		}
 		return c, c.stateMachine.Transition(state.MainMenu)
 	case login.LoginErrorMsg:
+		if c.tracer != nil {
+			_ = c.tracer.TrackError(fmt.Errorf("%s", msg.Error), "controller", "login")
+		}
 		c.loginComponent.SetError(msg.Error)
 		return c, nil
 	}
@@ -315,19 +378,35 @@ func (c *Controller) handleProjectNameMenuState(msg tea.Msg) (*Controller, tea.C
 		if c.keyHandler.IsEnter(msg) {
 			selectedName := c.projectNameMenu.GetSelectedItem()
 			c.selectedProjectName = selectedName
+
+			if c.tracer != nil {
+				_ = c.tracer.TrackMenuNavigation("project_name_menu", "select", selectedName)
+				_ = c.tracer.TrackStateChange("project_name_menu", "project_variant_menu", "project_selected")
+			}
+
 			variants := c.projectUtils.FilterByName(c.projects, c.selectedProjectName)
 			c.variantComponent = variant.New(variants, c.downloader, c.configManager, c.fileManager)
 			return c, c.stateMachine.Transition(state.ProjectVariantMenu)
 		}
 		if c.keyHandler.IsBack(msg) {
+			if c.tracer != nil {
+				_ = c.tracer.TrackStateChange("project_name_menu", "main_menu", "back_key")
+			}
 			return c, c.stateMachine.Transition(state.MainMenu)
 		}
 	case domain.ProjectsLoadedMsg:
+		if c.tracer != nil {
+			projectTracker := c.tracer.TrackAPICall("fetch_projects")
+			_ = projectTracker.Complete()
+		}
 		c.projects = msg.Projects
 		c.projectNameMenu.SetItems(c.projectUtils.ExtractUniqueNames(c.projects))
 		c.loading = false
 		return c, nil
 	case domain.ProjectsErrorMsg:
+		if c.tracer != nil {
+			_ = c.tracer.TrackError(msg.Error, "controller", "fetch_projects")
+		}
 		c.errorMsg = msg.Error.Error()
 		c.loading = false
 		return c, nil
@@ -342,6 +421,9 @@ func (c *Controller) handleProjectVariantMenuState(msg tea.Msg) (*Controller, te
 		c.variantComponent = updated
 
 		if _, ok := msg.(variant.BackMsg); ok {
+			if c.tracer != nil {
+				_ = c.tracer.TrackStateChange("project_variant_menu", "project_name_menu", "back_action")
+			}
 			return c, c.stateMachine.Transition(state.ProjectNameMenu)
 		}
 
@@ -371,6 +453,12 @@ func (c *Controller) handleTestProjectNameMenuState(msg tea.Msg) (*Controller, t
 		if c.keyHandler.IsEnter(msg) {
 			selectedName := c.testProjectNameMenu.GetSelectedItem()
 			c.selectedProjectName = selectedName
+
+			if c.tracer != nil {
+				_ = c.tracer.TrackMenuNavigation("test_project_name_menu", "select", selectedName)
+				_ = c.tracer.TrackStateChange("test_project_name_menu", "test_project_variant_menu", "test_project_selected")
+			}
+
 			// Filter to only downloaded projects
 			downloadedProjects := []api.Project{}
 			for _, project := range c.projects {
@@ -378,14 +466,22 @@ func (c *Controller) handleTestProjectNameMenuState(msg tea.Msg) (*Controller, t
 					downloadedProjects = append(downloadedProjects, project)
 				}
 			}
+
 			variants := c.projectUtils.FilterByName(downloadedProjects, c.selectedProjectName)
 			c.testVariantComponent = variant.NewForTesting(variants, c.testRunner, c.configManager, c.fileManager)
 			return c, c.stateMachine.Transition(state.TestProjectVariantMenu)
 		}
 		if c.keyHandler.IsBack(msg) {
+			if c.tracer != nil {
+				_ = c.tracer.TrackStateChange("test_project_name_menu", "main_menu", "back_key")
+			}
 			return c, c.stateMachine.Transition(state.MainMenu)
 		}
 	case domain.ProjectsLoadedMsg:
+		if c.tracer != nil {
+			projectTracker := c.tracer.TrackAPICall("fetch_projects_for_testing")
+			_ = projectTracker.Complete()
+		}
 		c.projects = msg.Projects
 		// Filter to only show downloaded projects for testing
 		downloadedProjects := []api.Project{}
@@ -398,6 +494,9 @@ func (c *Controller) handleTestProjectNameMenuState(msg tea.Msg) (*Controller, t
 		c.loading = false
 		return c, nil
 	case domain.ProjectsErrorMsg:
+		if c.tracer != nil {
+			_ = c.tracer.TrackError(msg.Error, "controller", "fetch_projects_for_testing")
+		}
 		c.errorMsg = msg.Error.Error()
 		c.loading = false
 		return c, nil
@@ -414,6 +513,9 @@ func (c *Controller) handleTestProjectVariantMenuState(msg tea.Msg) (*Controller
 		// Handle test completion - navigate to test results
 		switch msg := msg.(type) {
 		case variant.TestCompleteMsg:
+			if c.tracer != nil {
+				_ = c.tracer.TrackStateChange("test_project_variant_menu", "test_project", "test_completed")
+			}
 			// Convert the test result and show in test component
 			// We need to send the test result to the test component
 			return c, tea.Batch(
@@ -435,11 +537,17 @@ func (c *Controller) handleTestProjectVariantMenuState(msg tea.Msg) (*Controller
 				},
 			)
 		case variant.TestErrorMsg:
+			if c.tracer != nil {
+				_ = c.tracer.TrackError(fmt.Errorf("%s", msg.Error), "controller", "test_execution")
+			}
 			c.errorMsg = msg.Error
 			return c, nil
 		}
 
 		if _, ok := msg.(variant.BackMsg); ok {
+			if c.tracer != nil {
+				_ = c.tracer.TrackStateChange("test_project_variant_menu", "test_project_name_menu", "back_action")
+			}
 			return c, c.stateMachine.Transition(state.TestProjectNameMenu)
 		}
 
@@ -452,6 +560,9 @@ func (c *Controller) handleTestProjectState(msg tea.Msg) (*Controller, tea.Cmd) 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if c.keyHandler.IsBack(msg) {
+			if c.tracer != nil {
+				_ = c.tracer.TrackStateChange("test_project", "main_menu", "back_key")
+			}
 			return c, c.stateMachine.Transition(state.MainMenu)
 		}
 	case domain.ProjectsLoadedMsg:
@@ -459,6 +570,9 @@ func (c *Controller) handleTestProjectState(msg tea.Msg) (*Controller, tea.Cmd) 
 		c.loading = false
 		return c, nil
 	case domain.ProjectsErrorMsg:
+		if c.tracer != nil {
+			_ = c.tracer.TrackError(msg.Error, "controller", "test_project_state")
+		}
 		c.errorMsg = msg.Error.Error()
 		c.loading = false
 		return c, nil
@@ -521,4 +635,12 @@ func (c *Controller) GetErrorMsg() string {
 
 func (c *Controller) GetVersionInfo() VersionInfo {
 	return c.versionInfo
+}
+
+// cleanup properly shuts down background processes and tickers
+func (c *Controller) cleanup() {
+	// Track application shutdown
+	if c.tracer != nil {
+		_ = c.tracer.TrackStateChange(c.stateMachine.Current().String(), "application_exit", "user_quit")
+	}
 }

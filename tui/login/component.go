@@ -2,9 +2,11 @@ package login
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"404skill-cli/auth"
+	"404skill-cli/tracing"
 	"404skill-cli/tui/components/footer"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -20,10 +22,17 @@ type Component struct {
 	loggingIn   bool
 	authService *auth.AuthService
 	footer      *footer.Component
+	tracer      *tracing.TUIIntegration
 }
 
 // New creates a new login component with dependency injection
 func New(authProvider auth.AuthProvider, configWriter auth.ConfigWriter) *Component {
+	// Get tracing integration from global manager
+	var tuiTracer *tracing.TUIIntegration
+	if manager := tracing.GetGlobalManager(); manager != nil {
+		tuiTracer = tracing.NewTUIIntegration(manager)
+	}
+
 	username := textinput.New()
 	username.Placeholder = "Username"
 	username.Focus()
@@ -37,12 +46,20 @@ func New(authProvider auth.AuthProvider, configWriter auth.ConfigWriter) *Compon
 	password.CharLimit = 64
 	password.Width = 32
 
-	return &Component{
+	component := &Component{
 		inputs:      []textinput.Model{username, password},
 		focusIdx:    0,
 		authService: auth.NewAuthService(authProvider, configWriter),
 		footer:      footer.New(),
+		tracer:      tuiTracer,
 	}
+
+	// Track component initialization
+	if tuiTracer != nil {
+		_ = tuiTracer.TrackProjectOperation("login_component_init", "authentication")
+	}
+
+	return component
 }
 
 // Init initializes the login component
@@ -58,6 +75,9 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab", "shift+tab":
+			if c.tracer != nil {
+				_ = c.tracer.TrackKeyMsg(msg, "login_field_navigation")
+			}
 			if msg.String() == "shift+tab" {
 				c.focusIdx--
 			} else {
@@ -71,7 +91,13 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 			c.updateFocus()
 			return c, nil
 		case "enter":
+			if c.tracer != nil {
+				_ = c.tracer.TrackKeyMsg(msg, "login_submit_attempt")
+			}
 			if c.focusIdx == 1 && !c.loggingIn {
+				if c.tracer != nil {
+					_ = c.tracer.TrackProjectOperation("login_attempt", "authentication")
+				}
 				c.loggingIn = true
 				c.errorMsg = ""
 				return c, c.tryLogin()
@@ -80,15 +106,29 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 			c.updateFocus()
 			return c, nil
 		default:
+			// Track input field interactions
+			if c.tracer != nil && len(msg.String()) == 1 {
+				fieldName := "username"
+				if c.focusIdx == 1 {
+					fieldName = "password"
+				}
+				_ = c.tracer.TrackKeyMsg(msg, "login_field_input_"+fieldName)
+			}
 			// Pass all other keys to the focused input only
 			c.inputs[c.focusIdx], cmd = c.inputs[c.focusIdx].Update(msg)
 			return c, cmd
 		}
 	case LoginSuccessMsg:
+		if c.tracer != nil {
+			_ = c.tracer.TrackProjectOperation("login_success", "authentication")
+		}
 		c.errorMsg = ""
 		c.loggingIn = false
 		return c, LoginSuccessCommand()
 	case LoginErrorMsg:
+		if c.tracer != nil {
+			_ = c.tracer.TrackError(fmt.Errorf("%s", msg.Error), "login", "authentication")
+		}
 		c.errorMsg = msg.Error
 		c.loggingIn = false
 		return c, nil
@@ -203,6 +243,13 @@ func (c *Component) updateFocus() {
 // Uses the AuthService for business logic
 func (c *Component) tryLogin() tea.Cmd {
 	return func() tea.Msg {
+		// Track login operation performance
+		var loginTracker *tracing.TimedOperationTracker
+		if c.tracer != nil {
+			loginTracker = c.tracer.TrackProjectOperation("authentication_request", "login")
+			loginTracker.AddMetadata("username", c.inputs[0].Value()) // Username is not sensitive
+		}
+
 		username := c.inputs[0].Value()
 		password := c.inputs[1].Value()
 
@@ -210,8 +257,14 @@ func (c *Component) tryLogin() tea.Cmd {
 		result := c.authService.AttemptLogin(context.Background(), username, password)
 
 		if result.Success {
+			if loginTracker != nil {
+				_ = loginTracker.Complete()
+			}
 			return LoginSuccessMsg{}
 		} else {
+			if loginTracker != nil {
+				_ = loginTracker.CompleteWithError(fmt.Errorf("authentication failed"))
+			}
 			return LoginErrorMsg{Error: result.Error}
 		}
 	}
