@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -30,7 +29,6 @@ type Config struct {
 	Username           string          `yaml:"username"`
 	Password           string          `yaml:"password"`
 	AccessToken        string          `yaml:"access_token"`
-	RefreshToken       string          `yaml:"refresh_token"`
 	LastUpdated        time.Time       `yaml:"last_updated"`
 	DownloadedProjects map[string]bool `yaml:"downloaded_projects"`
 }
@@ -39,7 +37,7 @@ type Config struct {
 // This is private - use ConfigManager methods instead
 func readConfig() (Config, error) {
 	var config Config
-	data, err := ioutil.ReadFile(ConfigFilePath)
+	data, err := os.ReadFile(ConfigFilePath)
 	if err != nil {
 		return config, err
 	}
@@ -54,7 +52,7 @@ func writeConfig(config Config) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(ConfigFilePath, data, 0600)
+	return os.WriteFile(ConfigFilePath, data, 0600)
 }
 
 // isTokenExpired checks if a token has expired (24 hour expiry)

@@ -37,8 +37,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize and run the TUI
-	p := tea.NewProgram(tui.InitialModel(client, version), tea.WithAltScreen())
+	// Initialize the TUI model
+	model, err := tui.InitialModel(client, version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing TUI: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Run the TUI
+	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		os.Exit(1)
 	}

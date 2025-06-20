@@ -42,6 +42,7 @@ type Project struct {
 	Type                       string `json:"type"`
 	EstimatedDurationInMinutes int    `json:"estimated_duration_minutes"`
 	AccessTier                 string `json:"access_tier"`
+	Technologies               string `json:"technologies"`
 }
 
 // ProjectTemplate represents a project template response

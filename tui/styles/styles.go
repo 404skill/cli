@@ -1,4 +1,4 @@
-package tui
+package styles
 
 import (
 	"fmt"
@@ -9,76 +9,87 @@ import (
 
 // Colors
 var (
-	primary    = lipgloss.Color("#00ff00") // Bright green
-	secondary  = lipgloss.Color("#00aa00") // Darker green
-	accent     = lipgloss.Color("#00ffaa") // Cyan-green
-	errorColor = lipgloss.Color("#ff0000") // Red
-	bg         = lipgloss.Color("#000000") // Black
+	Primary    = lipgloss.Color("#00ff00") // Bright green
+	Secondary  = lipgloss.Color("#00aa00") // Darker green
+	Accent     = lipgloss.Color("#00ffaa") // Cyan-green
+	ErrorColor = lipgloss.Color("#ff0000") // Red
+	Background = lipgloss.Color("#000000") // Black
 )
 
-// Styles
+// Common Styles
 var (
-	baseStyle = lipgloss.NewStyle().
-			Foreground(primary).
-			Background(bg).
+	BaseStyle = lipgloss.NewStyle().
+			Foreground(Primary).
+			Background(Background).
 			Padding(1, 2)
 
-	headerStyle = lipgloss.NewStyle().
-			Foreground(accent).
+	HeaderStyle = lipgloss.NewStyle().
+			Foreground(Accent).
 			Bold(true).
 			Underline(true).
 			Padding(0, 1)
 
-	menuStyle = lipgloss.NewStyle().
-			Foreground(primary).
-			Background(bg).
+	MenuStyle = lipgloss.NewStyle().
+			Foreground(Primary).
+			Background(Background).
 			Padding(0, 1)
 
-	menuItemStyle = lipgloss.NewStyle().
-			Foreground(primary).
-			Background(bg).
+	MenuItemStyle = lipgloss.NewStyle().
+			Foreground(Primary).
+			Background(Background).
 			Padding(0, 1)
 
-	selectedMenuItemStyle = lipgloss.NewStyle().
-				Foreground(bg).
-				Background(primary).
+	SelectedMenuItemStyle = lipgloss.NewStyle().
+				Foreground(Background).
+				Background(Primary).
 				Bold(true).
 				Padding(0, 1)
 
-	loginBoxStyle = lipgloss.NewStyle().
-			Foreground(primary).
-			Background(bg).
+	LoginBoxStyle = lipgloss.NewStyle().
+			Foreground(Primary).
+			Background(Background).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(accent).
+			BorderForeground(Accent).
 			Padding(1, 4).
 			Width(44)
 
-	errorStyle = lipgloss.NewStyle().
-			Foreground(errorColor).
+	ErrorStyle = lipgloss.NewStyle().
+			Foreground(ErrorColor).
 			Bold(true)
 
-	helpStyle = lipgloss.NewStyle().
-			Foreground(secondary).
+	HelpStyle = lipgloss.NewStyle().
+			Foreground(Secondary).
 			Faint(true)
 
-	downloadedStyle = lipgloss.NewStyle().
-			Foreground(secondary).
+	DownloadedStyle = lipgloss.NewStyle().
+			Foreground(Secondary).
 			Faint(true).
 			Render("✓ Downloaded")
 
-	bubbleTableColumns = []btable.Column{
+	SpinnerStyle = lipgloss.NewStyle().
+			Foreground(Accent).
+			Bold(true).
+			Padding(0, 1)
+)
+
+// Table Configuration
+var (
+	BubbleTableColumns = []btable.Column{
 		btable.NewColumn("name", "Name", 32),
 		btable.NewColumn("lang", "Language", 15),
 		btable.NewColumn("diff", "Difficulty", 15),
 		btable.NewColumn("dur", "Duration", 15),
 		btable.NewColumn("status", "Status", 15),
 	}
-
-	spinnerStyle = lipgloss.NewStyle().
-			Foreground(accent).
-			Bold(true).
-			Padding(0, 1)
 )
+
+// VersionInfo represents version information for display
+type VersionInfo struct {
+	CurrentVersion  string
+	LatestVersion   string
+	UpdateAvailable bool
+	CheckError      error
+}
 
 // GetASCIIArt returns the ASCII art with version information and update status
 func GetASCIIArt(versionInfo VersionInfo) string {
@@ -88,7 +99,7 @@ func GetASCIIArt(versionInfo VersionInfo) string {
 	}
 
 	return lipgloss.NewStyle().
-		Foreground(primary).Render(`
+		Foreground(Primary).Render(`
 /==============================================================================================\
 ||                                                                                            ||
 ||      ___   ___  ________  ___   ___  ________  ___  __    ___  ___       ___               ||
