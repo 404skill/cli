@@ -78,3 +78,30 @@ func (c *Controller) renderTestProject() string {
 	}
 	return c.testComponent.View()
 }
+
+func (c *Controller) renderTestProjectNameMenu() string {
+	if c.loading {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00ffaa")).
+			Bold(true).
+			Underline(true).
+			Padding(0, 1).
+			Render("\nLoading projects...")
+	}
+
+	header := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#00ffaa")).
+		Bold(true).
+		Underline(true).
+		Padding(0, 1).
+		Render("Select a project to test:")
+
+	return header + "\n" + c.testProjectNameMenu.View() + "\n" + c.footer.View(c.footerBindings.NavigationWithBack()...)
+}
+
+func (c *Controller) renderTestProjectVariantMenu() string {
+	if c.testVariantComponent != nil {
+		return c.testVariantComponent.View() + "\n" + c.footer.View(c.footerBindings.NavigationWithBack()...)
+	}
+	return "No variants available."
+}

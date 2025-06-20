@@ -1,7 +1,7 @@
 package testrunner
 
 import (
-	"bytes"
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,8 +27,21 @@ func (r *DefaultTestRunner) RunTests(project Project, progressCallback func(stri
 		return nil, fmt.Errorf("failed to find project directory: %w", err)
 	}
 
+	// Create log file for this test run
+	logFile, err := r.createLogFile(projectDir, project)
+	if err != nil {
+		if progressCallback != nil {
+			progressCallback(fmt.Sprintf("Warning: Could not create log file: %v", err))
+		}
+	}
+	defer func() {
+		if logFile != nil {
+			logFile.Close()
+		}
+	}()
+
 	// Run docker-compose
-	if err := r.runDockerCompose(projectDir, progressCallback); err != nil {
+	if err := r.runDockerCompose(projectDir, logFile, progressCallback); err != nil {
 		return nil, fmt.Errorf("failed to run tests: %w", err)
 	}
 
@@ -67,7 +80,7 @@ func (r *DefaultTestRunner) findProjectDirectory(project Project) (string, error
 }
 
 // runDockerCompose executes docker-compose up with build and abort-on-container-exit flags
-func (r *DefaultTestRunner) runDockerCompose(projectDir string, progressCallback func(string)) error {
+func (r *DefaultTestRunner) runDockerCompose(projectDir string, logFile *os.File, progressCallback func(string)) error {
 	if progressCallback != nil {
 		progressCallback("Starting docker-compose...")
 	}
@@ -75,47 +88,120 @@ func (r *DefaultTestRunner) runDockerCompose(projectDir string, progressCallback
 	cmd := exec.Command("docker", "compose", "up", "--build", "--abort-on-container-exit")
 	cmd.Dir = projectDir
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
 	if progressCallback != nil {
 		progressCallback(fmt.Sprintf("Running: docker compose up --build --abort-on-container-exit"))
 		progressCallback(fmt.Sprintf("Working directory: %s", projectDir))
 	}
 
-	cmd.Run()
+	// Log the command being run
+	if logFile != nil {
+		logFile.WriteString(fmt.Sprintf("Command: docker compose up --build --abort-on-container-exit\n"))
+		logFile.WriteString(fmt.Sprintf("Working Directory: %s\n\n", projectDir))
+		logFile.WriteString("=== OUTPUT ===\n")
+	}
+
+	// Create pipes to capture output in real-time
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start docker-compose: %w", err)
+	}
+
+	// Track if tests were actually executed
+	testsExecuted := false
+	testsUpToDate := false
+
+	// Stream stdout in real-time
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if progressCallback != nil {
+				progressCallback(fmt.Sprintf("OUT: %s", line))
+			}
+			if logFile != nil {
+				logFile.WriteString(fmt.Sprintf("STDOUT: %s\n", line))
+			}
+
+			// Check if tests are running or up-to-date
+			if strings.Contains(line, "> Task :test") {
+				if strings.Contains(line, "UP-TO-DATE") {
+					testsUpToDate = true
+				} else {
+					testsExecuted = true
+				}
+			}
+		}
+	}()
+
+	// Stream stderr in real-time
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if progressCallback != nil {
+				progressCallback(fmt.Sprintf("ERR: %s", line))
+			}
+			if logFile != nil {
+				logFile.WriteString(fmt.Sprintf("STDERR: %s\n", line))
+			}
+		}
+	}()
+
+	// Wait for command to finish
+	err = cmd.Wait()
 	exitCode := cmd.ProcessState.ExitCode()
 
 	if progressCallback != nil {
 		progressCallback(fmt.Sprintf("Docker-compose finished with exit code: %d", exitCode))
-		if stdout.Len() > 0 {
-			progressCallback(fmt.Sprintf("STDOUT: %s", stdout.String()))
+
+		if testsUpToDate && !testsExecuted {
+			progressCallback("⚠️  WARNING: Tests were UP-TO-DATE - no tests actually ran!")
+			progressCallback("This usually means:")
+			progressCallback("  1. No test files exist in the project")
+			progressCallback("  2. Tests haven't changed since last run")
+			progressCallback("  3. Gradle is using cached results")
 		}
-		if stderr.Len() > 0 {
-			progressCallback(fmt.Sprintf("STDERR: %s", stderr.String()))
-		}
+	}
+
+	if logFile != nil {
+		logFile.WriteString(fmt.Sprintf("\n=== COMMAND FINISHED ===\n"))
+		logFile.WriteString(fmt.Sprintf("Exit Code: %d\n", exitCode))
+		logFile.WriteString(fmt.Sprintf("Tests Executed: %t\n", testsExecuted))
+		logFile.WriteString(fmt.Sprintf("Tests Up-To-Date: %t\n", testsUpToDate))
+		logFile.WriteString(fmt.Sprintf("Finished: %s\n", time.Now().Format("2006-01-02 15:04:05")))
 	}
 
 	// Exit code 0 = all tests passed
 	// Exit code 1 = tests ran, but some failed (this is normal!)
 	// Other exit codes = actual docker-compose failure
 	if exitCode != 0 && exitCode != 1 {
-		errorMsg := fmt.Sprintf("docker-compose failed with exit code %d", exitCode)
-		if stdout.Len() > 0 {
-			errorMsg += fmt.Sprintf("\n\n--- STDOUT ---\n%s", stdout.String())
-		}
-		if stderr.Len() > 0 {
-			errorMsg += fmt.Sprintf("\n\n--- STDERR ---\n%s", stderr.String())
-		}
-		return fmt.Errorf("%s", errorMsg)
+		return fmt.Errorf("docker-compose failed with exit code %d", exitCode)
 	}
 
 	if progressCallback != nil {
 		if exitCode == 0 {
-			progressCallback("✅ All tests passed!")
+			if testsExecuted {
+				progressCallback("✅ All tests passed!")
+			} else if testsUpToDate {
+				progressCallback("⚠️  Tests were up-to-date - no new tests ran")
+			} else {
+				progressCallback("✅ Build completed successfully")
+			}
 		} else {
 			progressCallback("⚠️  Tests completed - some may have failed")
+		}
+		if logFile != nil {
+			progressCallback(fmt.Sprintf("📝 Full log saved to: %s", logFile.Name()))
 		}
 	}
 
@@ -175,4 +261,32 @@ func (r *DefaultTestRunner) parseTestResults(project Project, projectDir string)
 	}
 
 	return result, nil
+}
+
+// createLogFile creates a timestamped log file for the test run
+func (r *DefaultTestRunner) createLogFile(projectDir string, project Project) (*os.File, error) {
+	logsDir := filepath.Join(projectDir, "test-logs")
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create logs directory: %w", err)
+	}
+
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	logFileName := fmt.Sprintf("test-run_%s_%s.log", project.Language, timestamp)
+	logPath := filepath.Join(logsDir, logFileName)
+
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log file: %w", err)
+	}
+
+	// Write header to log file
+	header := fmt.Sprintf("=== Test Run Log ===\n")
+	header += fmt.Sprintf("Project: %s (%s)\n", project.Name, project.Language)
+	header += fmt.Sprintf("Directory: %s\n", projectDir)
+	header += fmt.Sprintf("Started: %s\n", time.Now().Format("2006-01-02 15:04:05"))
+	header += fmt.Sprintf("Log File: %s\n", logPath)
+	header += fmt.Sprintf("========================\n\n")
+
+	logFile.WriteString(header)
+	return logFile, nil
 }

@@ -7,6 +7,7 @@ import (
 	"404skill-cli/downloader"
 	"404skill-cli/filesystem"
 	"404skill-cli/supabase"
+	"404skill-cli/testreport"
 	"404skill-cli/testrunner"
 	"404skill-cli/tui/components/footer"
 	"404skill-cli/tui/components/menu"
@@ -33,7 +34,7 @@ const (
 	TestProject
 )
 
-// Controller orchestrates the TUI application
+// Controller manages the overall TUI state and coordinates between components
 type Controller struct {
 	// State management
 	stateMachine *state.Machine
@@ -43,21 +44,24 @@ type Controller struct {
 	footerBindings *keys.FooterBindings
 
 	// Components
-	loginComponent    *login.Component
-	projectComponent  *projects.Component
-	languageComponent *language.Component
-	testComponent     test.Component
-	mainMenu          *menu.Component
-	projectNameMenu   *menu.Component
-	variantComponent  *variant.Component
-	footer            *footer.Component
-	help              help.Model
+	loginComponent       *login.Component
+	projectComponent     *projects.Component
+	languageComponent    *language.Component
+	testComponent        test.Component
+	mainMenu             *menu.Component
+	projectNameMenu      *menu.Component
+	testProjectNameMenu  *menu.Component
+	variantComponent     *variant.Component
+	testVariantComponent *variant.Component
+	footer               *footer.Component
+	help                 help.Model
 
 	// Dependencies
 	fileManager    *filesystem.Manager
 	configManager  *config.ConfigManager
 	client         api.ClientInterface
 	downloader     downloader.Downloader
+	testRunner     testrunner.TestRunner
 	projectService *domain.ProjectService
 	projectUtils   *domain.ProjectUtils
 	versionChecker *VersionChecker
@@ -114,9 +118,11 @@ func New(client api.ClientInterface, version string) (*Controller, error) {
 	// Create components
 	loginComponent := login.New(authProvider, configManager)
 	projectComponent := projects.New(client, configManager, fileManager)
-	testComponent := test.New(testrunner.NewDefaultTestRunner(), configManager, client)
+	testRunner := testrunner.NewDefaultTestRunner()
+	testComponent := test.New(testRunner, configManager, client)
 	mainMenu := menu.New([]string{"Download a project", "Test a project"})
 	projectNameMenu := menu.New([]string{})
+	testProjectNameMenu := menu.New([]string{})
 	footer := footer.New()
 	help := help.New()
 
@@ -135,25 +141,27 @@ func New(client api.ClientInterface, version string) (*Controller, error) {
 	btableModel := btable.New(projectUtils.CreateTableColumns()).WithRows(rows)
 
 	controller := &Controller{
-		stateMachine:     stateMachine,
-		keyHandler:       keyHandler,
-		footerBindings:   footerBindings,
-		loginComponent:   loginComponent,
-		projectComponent: projectComponent,
-		testComponent:    testComponent,
-		mainMenu:         mainMenu,
-		projectNameMenu:  projectNameMenu,
-		footer:           footer,
-		help:             help,
-		fileManager:      fileManager,
-		configManager:    configManager,
-		client:           client,
-		downloader:       gitDownloader,
-		projectService:   projectService,
-		projectUtils:     projectUtils,
-		versionChecker:   versionChecker,
-		versionInfo:      VersionInfo{CurrentVersion: version},
-		table:            btableModel,
+		stateMachine:        stateMachine,
+		keyHandler:          keyHandler,
+		footerBindings:      footerBindings,
+		loginComponent:      loginComponent,
+		projectComponent:    projectComponent,
+		testComponent:       testComponent,
+		mainMenu:            mainMenu,
+		projectNameMenu:     projectNameMenu,
+		testProjectNameMenu: testProjectNameMenu,
+		footer:              footer,
+		help:                help,
+		fileManager:         fileManager,
+		configManager:       configManager,
+		client:              client,
+		downloader:          gitDownloader,
+		testRunner:          testRunner,
+		projectService:      projectService,
+		projectUtils:        projectUtils,
+		versionChecker:      versionChecker,
+		versionInfo:         VersionInfo{CurrentVersion: version},
+		table:               btableModel,
 	}
 
 	return controller, nil
@@ -210,6 +218,10 @@ func (c *Controller) handleStateUpdate(msg tea.Msg) (*Controller, tea.Cmd) {
 		return c.handleProjectNameMenuState(msg)
 	case state.ProjectVariantMenu:
 		return c.handleProjectVariantMenuState(msg)
+	case state.TestProjectNameMenu:
+		return c.handleTestProjectNameMenuState(msg)
+	case state.TestProjectVariantMenu:
+		return c.handleTestProjectVariantMenuState(msg)
 	case state.TestProject:
 		return c.handleTestProjectState(msg)
 	default:
@@ -247,7 +259,7 @@ func (c *Controller) handleMainMenuState(msg tea.Msg) (*Controller, tea.Cmd) {
 
 		if c.selectedAction == TestProject {
 			return c, tea.Batch(
-				c.stateMachine.Transition(state.TestProject),
+				c.stateMachine.Transition(state.TestProjectNameMenu),
 				c.projectService.FetchProjects(),
 			)
 		} else {
@@ -338,6 +350,104 @@ func (c *Controller) handleProjectVariantMenuState(msg tea.Msg) (*Controller, te
 	return c, nil
 }
 
+func (c *Controller) handleTestProjectNameMenuState(msg tea.Msg) (*Controller, tea.Cmd) {
+	// Update test project name menu if projects are loaded
+	if len(c.projects) > 0 && len(c.testProjectNameMenu.GetItems()) == 0 {
+		// Filter to only show downloaded projects for testing
+		downloadedProjects := []api.Project{}
+		for _, project := range c.projects {
+			if c.configManager.IsProjectDownloaded(project.ID) {
+				downloadedProjects = append(downloadedProjects, project)
+			}
+		}
+		c.testProjectNameMenu.SetItems(c.projectUtils.ExtractUniqueNames(downloadedProjects))
+	}
+
+	var cmd tea.Cmd
+	c.testProjectNameMenu, cmd = c.testProjectNameMenu.Update(msg)
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if c.keyHandler.IsEnter(msg) {
+			selectedName := c.testProjectNameMenu.GetSelectedItem()
+			c.selectedProjectName = selectedName
+			// Filter to only downloaded projects
+			downloadedProjects := []api.Project{}
+			for _, project := range c.projects {
+				if c.configManager.IsProjectDownloaded(project.ID) {
+					downloadedProjects = append(downloadedProjects, project)
+				}
+			}
+			variants := c.projectUtils.FilterByName(downloadedProjects, c.selectedProjectName)
+			c.testVariantComponent = variant.NewForTesting(variants, c.testRunner, c.configManager, c.fileManager)
+			return c, c.stateMachine.Transition(state.TestProjectVariantMenu)
+		}
+		if c.keyHandler.IsBack(msg) {
+			return c, c.stateMachine.Transition(state.MainMenu)
+		}
+	case domain.ProjectsLoadedMsg:
+		c.projects = msg.Projects
+		// Filter to only show downloaded projects for testing
+		downloadedProjects := []api.Project{}
+		for _, project := range c.projects {
+			if c.configManager.IsProjectDownloaded(project.ID) {
+				downloadedProjects = append(downloadedProjects, project)
+			}
+		}
+		c.testProjectNameMenu.SetItems(c.projectUtils.ExtractUniqueNames(downloadedProjects))
+		c.loading = false
+		return c, nil
+	case domain.ProjectsErrorMsg:
+		c.errorMsg = msg.Error.Error()
+		c.loading = false
+		return c, nil
+	}
+
+	return c, cmd
+}
+
+func (c *Controller) handleTestProjectVariantMenuState(msg tea.Msg) (*Controller, tea.Cmd) {
+	if c.testVariantComponent != nil {
+		updated, cmd := c.testVariantComponent.Update(msg)
+		c.testVariantComponent = updated
+
+		// Handle test completion - navigate to test results
+		switch msg := msg.(type) {
+		case variant.TestCompleteMsg:
+			// Convert the test result and show in test component
+			// We need to send the test result to the test component
+			return c, tea.Batch(
+				c.stateMachine.Transition(state.TestProject),
+				func() tea.Msg {
+					// Convert variant.TestCompleteMsg to test.TestCompleteMsg
+					testResult, ok := msg.Result.(*testreport.ParseResult)
+					if !ok {
+						return test.TestErrorMsg{Error: "Invalid test result format"}
+					}
+					return test.TestCompleteMsg{
+						Project: &testrunner.Project{
+							ID:       msg.Variant.ID,
+							Name:     msg.Variant.Name,
+							Language: msg.Variant.Language,
+						},
+						Result: testResult,
+					}
+				},
+			)
+		case variant.TestErrorMsg:
+			c.errorMsg = msg.Error
+			return c, nil
+		}
+
+		if _, ok := msg.(variant.BackMsg); ok {
+			return c, c.stateMachine.Transition(state.TestProjectNameMenu)
+		}
+
+		return c, cmd
+	}
+	return c, nil
+}
+
 func (c *Controller) handleTestProjectState(msg tea.Msg) (*Controller, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -377,6 +487,10 @@ func (c *Controller) View() string {
 		return c.renderProjectNameMenu()
 	case state.ProjectVariantMenu:
 		return c.renderProjectVariantMenu()
+	case state.TestProjectNameMenu:
+		return c.renderTestProjectNameMenu()
+	case state.TestProjectVariantMenu:
+		return c.renderTestProjectVariantMenu()
 	case state.TestProject:
 		return c.renderTestProject()
 	default:

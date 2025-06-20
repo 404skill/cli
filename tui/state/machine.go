@@ -19,13 +19,19 @@ const (
 	// Login - User authentication screen for entering credentials
 	Login
 
-	// ProjectNameMenu - Menu showing unique project names for selection
+	// ProjectNameMenu - Menu showing unique project names for selection (download flow)
 	ProjectNameMenu
 
-	// ProjectVariantMenu - Menu showing project variants (by technology stack) for selected project
+	// ProjectVariantMenu - Menu showing project variants (by technology stack) for selected project (download flow)
 	ProjectVariantMenu
 
-	// TestProject - Test project functionality screen with project selection and test execution
+	// TestProjectNameMenu - Menu showing unique project names for selection (test flow)
+	TestProjectNameMenu
+
+	// TestProjectVariantMenu - Menu showing project variants for testing selected project (test flow)
+	TestProjectVariantMenu
+
+	// TestProject - Legacy test project functionality screen (to be removed)
 	TestProject
 )
 
@@ -42,6 +48,10 @@ func (s State) String() string {
 		return "ProjectNameMenu"
 	case ProjectVariantMenu:
 		return "ProjectVariantMenu"
+	case TestProjectNameMenu:
+		return "TestProjectNameMenu"
+	case TestProjectVariantMenu:
+		return "TestProjectVariantMenu"
 	case TestProject:
 		return "TestProject"
 	default:
