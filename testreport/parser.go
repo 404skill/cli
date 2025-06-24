@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -124,9 +127,10 @@ func (p *Parser) parseTestSuite(xmlSuite *XMLTestSuite) (*ParseResult, error) {
 	}
 
 	return &ParseResult{
-		PassedTests: passedTests,
-		FailedTests: failedTests,
-		Suite:       suite,
+		PassedTests:    passedTests,
+		FailedTests:    failedTests,
+		Suite:          suite,
+		GroupedResults: p.groupTestsByTask(suite.Results),
 	}, nil
 }
 
@@ -137,4 +141,108 @@ func (p *Parser) ParseFile(filename string) (*ParseResult, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 	return p.Parse(bytes.NewReader(file))
+}
+
+// extractTaskNumber extracts task number from classname like "test_api.TestTask1HealthCheck"
+func (p *Parser) extractTaskNumber(className string) int {
+	if !strings.Contains(className, "TestTask") {
+		return -1
+	}
+
+	// Find "TestTask" and extract the number after it
+	taskIndex := strings.Index(className, "TestTask")
+	if taskIndex == -1 {
+		return -1
+	}
+
+	start := taskIndex + 8 // Move past "TestTask"
+	end := start
+
+	// Find the end of the number
+	for end < len(className) && className[end] >= '0' && className[end] <= '9' {
+		end++
+	}
+
+	if end == start {
+		return -1 // No digits found
+	}
+
+	taskNumStr := className[start:end]
+	taskNum, err := strconv.Atoi(taskNumStr)
+	if err != nil {
+		return -1
+	}
+
+	return taskNum
+}
+
+// groupTestsByTask groups tests by their task number
+func (p *Parser) groupTestsByTask(results []TestResult) *GroupedTestResults {
+	taskMap := make(map[int][]TestResult)
+
+	// Group tests by task number
+	for _, result := range results {
+		taskNum := p.extractTaskNumber(result.ClassName)
+		if taskNum == -1 {
+			taskNum = 0 // Put tests without task numbers in "Task 0"
+		}
+		taskMap[taskNum] = append(taskMap[taskNum], result)
+	}
+
+	// Convert to TestClass structs and sort by task number
+	var classes []TestClass
+	var taskNumbers []int
+	for taskNum := range taskMap {
+		taskNumbers = append(taskNumbers, taskNum)
+	}
+	sort.Ints(taskNumbers)
+
+	totalTests := 0
+	totalPassed := 0
+	totalFailed := 0
+	totalTime := 0.0
+
+	for _, taskNum := range taskNumbers {
+		tests := taskMap[taskNum]
+
+		var taskName string
+		var displayName string
+		if taskNum == 0 {
+			taskName = "Uncategorized"
+			displayName = "Uncategorized Tests"
+		} else {
+			taskName = fmt.Sprintf("Task%d", taskNum)
+			displayName = fmt.Sprintf("Task %d", taskNum)
+		}
+
+		class := TestClass{
+			Name:        taskName,
+			DisplayName: displayName,
+			Tests:       tests,
+		}
+
+		// Calculate statistics
+		for _, test := range tests {
+			class.TotalTime += test.Time
+			if test.Passed {
+				class.PassedCount++
+				totalPassed++
+			} else {
+				class.FailedCount++
+				totalFailed++
+			}
+			totalTests++
+		}
+		totalTime += class.TotalTime
+
+		classes = append(classes, class)
+	}
+
+	return &GroupedTestResults{
+		Classes:     classes,
+		TotalTests:  totalTests,
+		TotalPassed: totalPassed,
+		TotalFailed: totalFailed,
+		TotalTime:   totalTime,
+	}
 }

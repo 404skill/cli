@@ -20,6 +20,17 @@ var (
 			Underline(true).
 			Padding(0, 1)
 
+	groupHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#ffaa00")).
+				Background(lipgloss.Color("#2a2a2a")).
+				Padding(0, 1).
+				MarginTop(1)
+
+	groupDividerStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#444444")).
+				Bold(true)
+
 	passedStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#00aa00"))
@@ -55,6 +66,32 @@ var (
 			Faint(true)
 )
 
+// DisplayItemType represents the type of display item
+type DisplayItemType int
+
+const (
+	ItemTypeGroupHeader DisplayItemType = iota
+	ItemTypeTest
+	ItemTypeDivider
+)
+
+// DisplayItem represents an item in the display list (group header, test, or divider)
+type DisplayItem struct {
+	Type     DisplayItemType
+	Test     *TestResultItem  // For test items
+	Group    *GroupHeaderItem // For group headers
+	Selected bool
+}
+
+// GroupHeaderItem represents a group header display item
+type GroupHeaderItem struct {
+	Name        string
+	DisplayName string
+	PassedCount int
+	FailedCount int
+	TotalTime   float64
+}
+
 // TestResultsComponent handles the expandable test results display
 type TestResultsComponent struct {
 	// Dependencies
@@ -62,7 +99,8 @@ type TestResultsComponent struct {
 
 	// State
 	results           *testreport.ParseResult
-	items             []TestResultItem
+	items             []TestResultItem // Legacy: individual tests
+	displayItems      []DisplayItem    // New: grouped display with headers
 	selectedIndex     int
 	lastSelectedIndex int
 	expandedTests     map[string]bool
@@ -158,12 +196,44 @@ func (c *TestResultsComponent) Init() tea.Cmd {
 func (c *TestResultsComponent) SetResults(results *testreport.ParseResult) {
 	c.results = results
 	c.buildItems()
+	// Ensure selection is on a test item
+	c.ensureValidSelection()
+}
+
+// ensureValidSelection ensures the selection is on a test item, not a header or divider
+func (c *TestResultsComponent) ensureValidSelection() {
+	if len(c.displayItems) == 0 {
+		c.selectedIndex = 0
+		return
+	}
+
+	// If current selection is valid, keep it
+	if c.selectedIndex >= 0 && c.selectedIndex < len(c.displayItems) {
+		if c.displayItems[c.selectedIndex].Type == ItemTypeTest {
+			return
+		}
+	}
+
+	// Find the first test item
+	for i, item := range c.displayItems {
+		if item.Type == ItemTypeTest {
+			c.selectedIndex = i
+			c.buildItems() // Rebuild to update selection state
+			return
+		}
+	}
+
+	// No test items found
+	c.selectedIndex = 0
 }
 
 // GetSelectedTest returns the currently selected test result
 func (c *TestResultsComponent) GetSelectedTest() *testreport.TestResult {
-	if c.selectedIndex >= 0 && c.selectedIndex < len(c.items) {
-		return &c.items[c.selectedIndex].Result
+	if c.selectedIndex >= 0 && c.selectedIndex < len(c.displayItems) {
+		item := c.displayItems[c.selectedIndex]
+		if item.Type == ItemTypeTest && item.Test != nil {
+			return &item.Test.Result
+		}
 	}
 	return nil
 }
@@ -185,47 +255,36 @@ func (c *TestResultsComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, keys.Up):
-			if c.selectedIndex > 0 {
-				c.selectedIndex--
-				if c.selectedIndex < c.visibleStart {
-					c.visibleStart = c.selectedIndex
-				}
-				if c.selectedIndex != c.lastSelectedIndex {
-					c.lastSelectedIndex = c.selectedIndex
-				}
-			}
+			c.navigateUp()
 
 		case key.Matches(msg, keys.Down):
-			if c.selectedIndex < len(c.items)-1 {
-				c.selectedIndex++
-				if c.selectedIndex >= c.visibleStart+c.listHeight {
-					c.visibleStart = c.selectedIndex - c.listHeight + 1
-				}
-				if c.selectedIndex != c.lastSelectedIndex {
-					c.lastSelectedIndex = c.selectedIndex
-				}
-			}
+			c.navigateDown()
 
 		case key.Matches(msg, keys.Expand):
-			if c.selectedIndex >= 0 && c.selectedIndex < len(c.items) {
-				item := &c.items[c.selectedIndex]
-				if !item.Result.Passed {
-					c.expandedTests[item.Result.Name] = true
+			if c.selectedIndex >= 0 && c.selectedIndex < len(c.displayItems) {
+				item := c.displayItems[c.selectedIndex]
+				if item.Type == ItemTypeTest && item.Test != nil && !item.Test.Result.Passed {
+					c.expandedTests[item.Test.Result.Name] = true
+					c.buildItems()
 				}
 			}
 
 		case key.Matches(msg, keys.Collapse):
-			if c.selectedIndex >= 0 && c.selectedIndex < len(c.items) {
-				item := &c.items[c.selectedIndex]
-				c.expandedTests[item.Result.Name] = false
+			if c.selectedIndex >= 0 && c.selectedIndex < len(c.displayItems) {
+				item := c.displayItems[c.selectedIndex]
+				if item.Type == ItemTypeTest && item.Test != nil {
+					c.expandedTests[item.Test.Result.Name] = false
+					c.buildItems()
+				}
 			}
 
 		case key.Matches(msg, keys.Toggle):
-			if c.selectedIndex >= 0 && c.selectedIndex < len(c.items) {
-				item := &c.items[c.selectedIndex]
-				if !item.Result.Passed {
-					current := c.expandedTests[item.Result.Name]
-					c.expandedTests[item.Result.Name] = !current
+			if c.selectedIndex >= 0 && c.selectedIndex < len(c.displayItems) {
+				item := c.displayItems[c.selectedIndex]
+				if item.Type == ItemTypeTest && item.Test != nil && !item.Test.Result.Passed {
+					current := c.expandedTests[item.Test.Result.Name]
+					c.expandedTests[item.Test.Result.Name] = !current
+					c.buildItems()
 				}
 			}
 
@@ -284,12 +343,77 @@ func (c *TestResultsComponent) buildItems() {
 		return
 	}
 
+	// Build legacy items for compatibility
 	c.items = make([]TestResultItem, len(c.results.Suite.Results))
 	for i, result := range c.results.Suite.Results {
 		c.items[i] = TestResultItem{
 			Result:   result,
 			Expanded: c.expandedTests[result.Name],
-			Selected: i == c.selectedIndex,
+			Selected: false, // Selection handled in displayItems
+		}
+	}
+
+	// Build grouped display items
+	c.displayItems = []DisplayItem{}
+
+	if c.results.GroupedResults != nil {
+		// Use grouped results
+		for groupIndex, group := range c.results.GroupedResults.Classes {
+			// Add group header
+			header := DisplayItem{
+				Type: ItemTypeGroupHeader,
+				Group: &GroupHeaderItem{
+					Name:        group.Name,
+					DisplayName: group.DisplayName,
+					PassedCount: group.PassedCount,
+					FailedCount: group.FailedCount,
+					TotalTime:   group.TotalTime,
+				},
+				Selected: false, // Headers are not selectable
+			}
+			c.displayItems = append(c.displayItems, header)
+
+			// Add tests for this group
+			for _, test := range group.Tests {
+				testItem := DisplayItem{
+					Type: ItemTypeTest,
+					Test: &TestResultItem{
+						Result:   test,
+						Expanded: c.expandedTests[test.Name],
+					},
+					Selected: false, // Will be set below
+				}
+				c.displayItems = append(c.displayItems, testItem)
+			}
+
+			// Add divider between groups (except after last group)
+			if groupIndex < len(c.results.GroupedResults.Classes)-1 {
+				divider := DisplayItem{
+					Type:     ItemTypeDivider,
+					Selected: false, // Dividers are not selectable
+				}
+				c.displayItems = append(c.displayItems, divider)
+			}
+		}
+	} else {
+		// Fallback: use original results without grouping
+		for _, result := range c.results.Suite.Results {
+			testItem := DisplayItem{
+				Type: ItemTypeTest,
+				Test: &TestResultItem{
+					Result:   result,
+					Expanded: c.expandedTests[result.Name],
+				},
+				Selected: false,
+			}
+			c.displayItems = append(c.displayItems, testItem)
+		}
+	}
+
+	// Update selection state - only for test items
+	for i := range c.displayItems {
+		if c.displayItems[i].Type == ItemTypeTest && i == c.selectedIndex {
+			c.displayItems[i].Selected = true
 		}
 	}
 }
@@ -322,42 +446,77 @@ func (c *TestResultsComponent) buildTestListView() string {
 		c.listHeight = 10 // fallback default
 	}
 	start := c.visibleStart
-	end := min(start+c.listHeight, len(c.items))
+	end := min(start+c.listHeight, len(c.displayItems))
 	var b strings.Builder
-	for i := start; i < end; i++ {
-		item := c.items[i]
-		// Select style
-		line := c.formatTestLine(item)
-		if item.Selected {
-			line = selectedStyle.Render(line)
-		}
-		b.WriteString(line)
-		b.WriteString("\n")
 
-		// Only show the first line of output or failure message if expanded
-		if item.Expanded {
-			var detail string
-			if item.Result.Passed {
-				if item.Result.Output != nil && len(item.Result.Output.Stdout) > 0 {
-					detail = strings.SplitN(item.Result.Output.Stdout, "\n", 2)[0]
+	for i := start; i < end; i++ {
+		item := c.displayItems[i]
+
+		switch item.Type {
+		case ItemTypeGroupHeader:
+			line := c.formatGroupHeader(item)
+			if item.Selected {
+				line = selectedStyle.Render(line)
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+
+		case ItemTypeTest:
+			if item.Test != nil {
+				line := c.formatTestLine(*item.Test)
+				if item.Selected {
+					line = selectedStyle.Render(line)
 				}
-				if detail != "" {
-					b.WriteString(passedStyle.Render(detail) + "\n")
-				}
-			} else if item.Result.Failure != nil {
-				msg := item.Result.Failure.Message
-				if msg == "" && item.Result.Output != nil && len(item.Result.Output.Stdout) > 0 {
-					msg = strings.SplitN(item.Result.Output.Stdout, "\n", 2)[0]
-				} else if msg != "" {
-					msg = strings.SplitN(msg, "\n", 2)[0]
-				}
-				if msg != "" {
-					b.WriteString(failedStyle.Render(msg) + "\n")
+				b.WriteString(line)
+				b.WriteString("\n")
+
+				// Show failure message if expanded
+				if item.Test.Expanded {
+					var detail string
+					if item.Test.Result.Passed {
+						if item.Test.Result.Output != nil && len(item.Test.Result.Output.Stdout) > 0 {
+							detail = strings.SplitN(item.Test.Result.Output.Stdout, "\n", 2)[0]
+						}
+						if detail != "" {
+							b.WriteString(passedStyle.Render("  "+detail) + "\n")
+						}
+					} else if item.Test.Result.Failure != nil {
+						msg := item.Test.Result.Failure.Message
+						if msg == "" && item.Test.Result.Output != nil && len(item.Test.Result.Output.Stdout) > 0 {
+							msg = strings.SplitN(item.Test.Result.Output.Stdout, "\n", 2)[0]
+						} else if msg != "" {
+							msg = strings.SplitN(msg, "\n", 2)[0]
+						}
+						if msg != "" {
+							b.WriteString(failedStyle.Render("  "+msg) + "\n")
+						}
+					}
 				}
 			}
+
+		case ItemTypeDivider:
+			dividerLine := groupDividerStyle.Render("────────────────────────────────────────")
+			b.WriteString(dividerLine)
+			b.WriteString("\n")
 		}
 	}
 	return b.String()
+}
+
+// formatGroupHeader formats a group header line
+func (c *TestResultsComponent) formatGroupHeader(item DisplayItem) string {
+	if item.Group == nil {
+		return ""
+	}
+
+	group := item.Group
+	header := groupHeaderStyle.Render(fmt.Sprintf("📁 %s", group.DisplayName))
+
+	// Add statistics
+	stats := fmt.Sprintf("(%d passed, %d failed, %.2fs)",
+		group.PassedCount, group.FailedCount, group.TotalTime)
+
+	return fmt.Sprintf("%s %s", header, stats)
 }
 
 // formatTestLine formats a single test result line
@@ -405,4 +564,66 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (c *TestResultsComponent) navigateUp() {
+	originalIndex := c.selectedIndex
+
+	if c.selectedIndex > 0 {
+		c.selectedIndex--
+
+		// Skip non-selectable items
+		for c.selectedIndex >= 0 && c.selectedIndex < len(c.displayItems) {
+			if c.displayItems[c.selectedIndex].Type == ItemTypeTest {
+				break // Found a selectable test item
+			}
+			if c.selectedIndex > 0 {
+				c.selectedIndex--
+			} else {
+				// Can't go further up, revert
+				c.selectedIndex = originalIndex
+				return
+			}
+		}
+
+		// Update view and rebuild
+		if c.selectedIndex < c.visibleStart {
+			c.visibleStart = c.selectedIndex
+		}
+		if c.selectedIndex != c.lastSelectedIndex {
+			c.lastSelectedIndex = c.selectedIndex
+		}
+		c.buildItems()
+	}
+}
+
+func (c *TestResultsComponent) navigateDown() {
+	originalIndex := c.selectedIndex
+
+	if c.selectedIndex < len(c.displayItems)-1 {
+		c.selectedIndex++
+
+		// Skip non-selectable items
+		for c.selectedIndex < len(c.displayItems) {
+			if c.displayItems[c.selectedIndex].Type == ItemTypeTest {
+				break // Found a selectable test item
+			}
+			if c.selectedIndex < len(c.displayItems)-1 {
+				c.selectedIndex++
+			} else {
+				// Can't go further down, revert
+				c.selectedIndex = originalIndex
+				return
+			}
+		}
+
+		// Update view and rebuild
+		if c.selectedIndex >= c.visibleStart+c.listHeight {
+			c.visibleStart = c.selectedIndex - c.listHeight + 1
+		}
+		if c.selectedIndex != c.lastSelectedIndex {
+			c.lastSelectedIndex = c.selectedIndex
+		}
+		c.buildItems()
+	}
 }

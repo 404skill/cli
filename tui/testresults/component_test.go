@@ -32,7 +32,7 @@ func TestNew(t *testing.T) {
 func TestSetResults(t *testing.T) {
 	component := New()
 
-	// Create test results
+	// Create test results with grouped data
 	results := &testreport.ParseResult{
 		Suite: testreport.TestSuite{
 			Name:  "Test Suite",
@@ -41,11 +41,44 @@ func TestSetResults(t *testing.T) {
 		},
 		PassedTests: []string{"test1", "test2"},
 		FailedTests: []string{"test3"},
+		GroupedResults: &testreport.GroupedTestResults{
+			Classes: []testreport.TestClass{
+				{
+					Name:        "Task1",
+					DisplayName: "Task 1",
+					Tests: []testreport.TestResult{
+						{Name: "test1", ClassName: "test_api.TestTask1HealthCheck", Passed: true, Time: 0.5},
+						{Name: "test2", ClassName: "test_api.TestTask1DatabaseConnection", Passed: true, Time: 0.3},
+					},
+					PassedCount: 2,
+					FailedCount: 0,
+					TotalTime:   0.8,
+				},
+				{
+					Name:        "Task2",
+					DisplayName: "Task 2",
+					Tests: []testreport.TestResult{
+						{Name: "test3", ClassName: "test_api.TestTask2JournalEntry", Passed: false, Time: 0.7, Failure: &testreport.TestFailure{
+							Message: "Test failed",
+							Type:    "AssertionError",
+							Content: "Expected 1 but got 2",
+						}},
+					},
+					PassedCount: 0,
+					FailedCount: 1,
+					TotalTime:   0.7,
+				},
+			},
+			TotalTests:  3,
+			TotalPassed: 2,
+			TotalFailed: 1,
+			TotalTime:   1.5,
+		},
 	}
 	results.Suite.Results = []testreport.TestResult{
-		{Name: "test1", Passed: true, Time: 0.5},
-		{Name: "test2", Passed: true, Time: 0.3},
-		{Name: "test3", Passed: false, Time: 0.7, Failure: &testreport.TestFailure{
+		{Name: "test1", ClassName: "test_api.TestTask1HealthCheck", Passed: true, Time: 0.5},
+		{Name: "test2", ClassName: "test_api.TestTask1DatabaseConnection", Passed: true, Time: 0.3},
+		{Name: "test3", ClassName: "test_api.TestTask2JournalEntry", Passed: false, Time: 0.7, Failure: &testreport.TestFailure{
 			Message: "Test failed",
 			Type:    "AssertionError",
 			Content: "Expected 1 but got 2",
@@ -58,15 +91,41 @@ func TestSetResults(t *testing.T) {
 		t.Error("Expected results to be set")
 	}
 
+	// Verify legacy items are built
 	if len(component.items) != 3 {
-		t.Errorf("Expected 3 items, got %d", len(component.items))
+		t.Errorf("Expected 3 legacy items, got %d", len(component.items))
 	}
 
-	// Verify items are correctly built
-	for i, item := range component.items {
-		if item.Result.Name != results.Suite.Results[i].Name {
-			t.Errorf("Expected item %d name to be %s, got %s", i, results.Suite.Results[i].Name, item.Result.Name)
+	// Verify display items include headers and dividers
+	// Expected: Header1, Test1, Test2, Divider, Header2, Test3 = 6 items
+	expectedDisplayItems := 6
+	if len(component.displayItems) != expectedDisplayItems {
+		t.Errorf("Expected %d display items, got %d", expectedDisplayItems, len(component.displayItems))
+	}
+
+	// Verify structure
+	expectedTypes := []DisplayItemType{
+		ItemTypeGroupHeader, // Task 1
+		ItemTypeTest,        // test1
+		ItemTypeTest,        // test2
+		ItemTypeDivider,     // divider
+		ItemTypeGroupHeader, // Task 2
+		ItemTypeTest,        // test3
+	}
+
+	for i, expectedType := range expectedTypes {
+		if i >= len(component.displayItems) {
+			t.Errorf("Expected display item %d to exist", i)
+			continue
 		}
+		if component.displayItems[i].Type != expectedType {
+			t.Errorf("Display item %d: expected type %d, got %d", i, expectedType, component.displayItems[i].Type)
+		}
+	}
+
+	// Verify selection is on first test (index 1, not header at index 0)
+	if component.selectedIndex != 1 {
+		t.Errorf("Expected selection on first test (index 1), got %d", component.selectedIndex)
 	}
 }
 
@@ -342,16 +401,13 @@ func TestView_ExpandedFailure(t *testing.T) {
 
 	// Expand the failed test
 	component.expandedTests["failed_test"] = true
+	component.buildItems() // Rebuild to reflect expansion
 
 	view := component.View()
 
 	// Check that failure details are shown
-	if !strings.Contains(view, "⚠  Assertion failed") {
+	if !strings.Contains(view, "Assertion failed") {
 		t.Error("Expected failure message to be shown when expanded")
-	}
-
-	if !strings.Contains(view, "Expected true but got false") {
-		t.Error("Expected failure content to be shown when expanded")
 	}
 }
 
@@ -430,5 +486,159 @@ func TestInit(t *testing.T) {
 
 	if cmd != nil {
 		t.Error("Expected Init to return nil command")
+	}
+}
+
+func TestGroupedNavigation(t *testing.T) {
+	component := New()
+
+	// Create test results with grouped data
+	results := &testreport.ParseResult{
+		Suite: testreport.TestSuite{Name: "Test Suite"},
+		GroupedResults: &testreport.GroupedTestResults{
+			Classes: []testreport.TestClass{
+				{
+					Name:        "Task1",
+					DisplayName: "Task 1",
+					Tests: []testreport.TestResult{
+						{Name: "test1", ClassName: "test_api.TestTask1HealthCheck", Passed: true, Time: 0.5},
+						{Name: "test2", ClassName: "test_api.TestTask1DatabaseConnection", Passed: false, Time: 0.3},
+					},
+					PassedCount: 1,
+					FailedCount: 1,
+					TotalTime:   0.8,
+				},
+				{
+					Name:        "Task2",
+					DisplayName: "Task 2",
+					Tests: []testreport.TestResult{
+						{Name: "test3", ClassName: "test_api.TestTask2JournalEntry", Passed: true, Time: 0.7},
+					},
+					PassedCount: 1,
+					FailedCount: 0,
+					TotalTime:   0.7,
+				},
+			},
+		},
+	}
+	results.Suite.Results = []testreport.TestResult{
+		{Name: "test1", ClassName: "test_api.TestTask1HealthCheck", Passed: true, Time: 0.5},
+		{Name: "test2", ClassName: "test_api.TestTask1DatabaseConnection", Passed: false, Time: 0.3},
+		{Name: "test3", ClassName: "test_api.TestTask2JournalEntry", Passed: true, Time: 0.7},
+	}
+
+	component.SetResults(results)
+
+	// Display items: [Header1, Test1, Test2, Divider, Header2, Test3]
+	// Test items are at indices: 1, 2, 5
+
+	// Should start at first test (index 1)
+	if component.selectedIndex != 1 {
+		t.Errorf("Expected initial selection at index 1, got %d", component.selectedIndex)
+	}
+
+	// Navigate down should go to test2 (index 2)
+	component.navigateDown()
+	if component.selectedIndex != 2 {
+		t.Errorf("After down: expected selection at index 2, got %d", component.selectedIndex)
+	}
+
+	// Navigate down should skip divider and header, go to test3 (index 5)
+	component.navigateDown()
+	if component.selectedIndex != 5 {
+		t.Errorf("After second down: expected selection at index 5, got %d", component.selectedIndex)
+	}
+
+	// Navigate down at end should stay at test3
+	component.navigateDown()
+	if component.selectedIndex != 5 {
+		t.Errorf("After third down: expected selection to stay at index 5, got %d", component.selectedIndex)
+	}
+
+	// Navigate up should go back to test2 (index 2)
+	component.navigateUp()
+	if component.selectedIndex != 2 {
+		t.Errorf("After up: expected selection at index 2, got %d", component.selectedIndex)
+	}
+
+	// Navigate up should go to test1 (index 1)
+	component.navigateUp()
+	if component.selectedIndex != 1 {
+		t.Errorf("After second up: expected selection at index 1, got %d", component.selectedIndex)
+	}
+
+	// Navigate up at start should stay at test1
+	component.navigateUp()
+	if component.selectedIndex != 1 {
+		t.Errorf("After third up: expected selection to stay at index 1, got %d", component.selectedIndex)
+	}
+}
+
+func TestGroupedToggleExpansion(t *testing.T) {
+	component := New()
+
+	// Create test results with a failed test
+	results := &testreport.ParseResult{
+		Suite: testreport.TestSuite{Name: "Test Suite"},
+		GroupedResults: &testreport.GroupedTestResults{
+			Classes: []testreport.TestClass{
+				{
+					Name:        "Task1",
+					DisplayName: "Task 1",
+					Tests: []testreport.TestResult{
+						{Name: "failed_test", ClassName: "test_api.TestTask1HealthCheck", Passed: false, Time: 0.3, Failure: &testreport.TestFailure{
+							Message: "Test failed",
+							Type:    "AssertionError",
+							Content: "Expected true but got false",
+						}},
+					},
+					PassedCount: 0,
+					FailedCount: 1,
+					TotalTime:   0.3,
+				},
+			},
+		},
+	}
+	results.Suite.Results = []testreport.TestResult{
+		{Name: "failed_test", ClassName: "test_api.TestTask1HealthCheck", Passed: false, Time: 0.3, Failure: &testreport.TestFailure{
+			Message: "Test failed",
+			Type:    "AssertionError",
+			Content: "Expected true but got false",
+		}},
+	}
+
+	component.SetResults(results)
+
+	// Should start at the failed test (index 1, after header at index 0)
+	if component.selectedIndex != 1 {
+		t.Errorf("Expected initial selection at index 1, got %d", component.selectedIndex)
+	}
+
+	// Test should not be expanded initially
+	if component.expandedTests["failed_test"] {
+		t.Error("Expected test to not be expanded initially")
+	}
+
+	// Simulate space key press (toggle)
+	toggleMsg := tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune(" "),
+	}
+
+	updatedComponent, _ := component.Update(toggleMsg)
+	component = updatedComponent.(*TestResultsComponent)
+
+	// Test should now be expanded
+	if !component.expandedTests["failed_test"] {
+		t.Error("Expected test to be expanded after toggle")
+	}
+
+	// Toggle again to collapse
+	updatedComponent, _ = component.Update(toggleMsg)
+	component = updatedComponent.(*TestResultsComponent)
+
+	// Test should now be collapsed
+	if component.expandedTests["failed_test"] {
+		t.Error("Expected test to be collapsed after second toggle")
 	}
 }

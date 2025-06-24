@@ -40,7 +40,27 @@ type TestSuite struct {
 
 // ParseResult represents the result of parsing a test report
 type ParseResult struct {
-	PassedTests []string
-	FailedTests []string
-	Suite       TestSuite
+	PassedTests    []string
+	FailedTests    []string
+	Suite          TestSuite
+	GroupedResults *GroupedTestResults // Grouped by task number
+}
+
+// TestClass represents a group of tests (e.g., Task 1, Task 2)
+type TestClass struct {
+	Name        string       // e.g., "Task1", "Task2"
+	DisplayName string       // e.g., "Task 1", "Task 2"
+	Tests       []TestResult // Tests in this group
+	PassedCount int          // Number of passed tests
+	FailedCount int          // Number of failed tests
+	TotalTime   float64      // Total execution time
+}
+
+// GroupedTestResults represents test results grouped by task
+type GroupedTestResults struct {
+	Classes     []TestClass // Groups of tests
+	TotalTests  int         // Total number of tests
+	TotalPassed int         // Total passed tests
+	TotalFailed int         // Total failed tests
+	TotalTime   float64     // Total execution time
 }
