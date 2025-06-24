@@ -45,8 +45,8 @@ func (g *GitDownloader) DownloadProject(ctx context.Context, project *api.Projec
 
 	// Format project name for repo URL
 	repoName := strings.ToLower(strings.ReplaceAll(project.Name, " ", "_"))
-	repoURL := fmt.Sprintf("https://github.com/404skill/%s_%s", repoName, language)
-	targetDir := filepath.Join(projectsDir, fmt.Sprintf("%s_%s", repoName, language))
+	repoURL := fmt.Sprintf("https://github.com/404skill/%s_%s", repoName, project.ID)
+	targetDir := filepath.Join(projectsDir, fmt.Sprintf("%s_%s", repoName, project.ID))
 
 	// Create progress callback for main project (0-50%)
 	mainProgressCallback := func(progress float64) {
@@ -63,12 +63,11 @@ func (g *GitDownloader) DownloadProject(ctx context.Context, project *api.Projec
 	// Create progress callback for test project (50-100%)
 	testProgressCallback := func(progress float64) {
 		if progressCallback != nil {
-			progressCallback(0.5 + progress*0.5) // Scale to 50-100%
+			progressCallback(0.5 + (progress * 0.5)) // Scale to 50-100%
 		}
 	}
 
-	// Clone test repository
-	if err := g.cloneTestProject(ctx, repoName, language, projectsDir, testProgressCallback); err != nil {
+	if err := g.cloneTestProject(ctx, repoName, project.ID, projectsDir, testProgressCallback); err != nil {
 		return err
 	}
 
@@ -202,9 +201,9 @@ func (g *GitDownloader) cloneMainProject(ctx context.Context, repoURL, targetDir
 }
 
 // cloneTestProject clones the test repository
-func (g *GitDownloader) cloneTestProject(ctx context.Context, repoName, language, projectsDir string, progressCallback ProgressCallback) error {
-	testRepoURL := fmt.Sprintf("https://github.com/404skill/%s_%s_test", repoName, language)
-	testDir := filepath.Join(projectsDir, ".tests", fmt.Sprintf("%s_%s", repoName, language))
+func (g *GitDownloader) cloneTestProject(ctx context.Context, repoName, projectID, projectsDir string, progressCallback ProgressCallback) error {
+	testRepoURL := fmt.Sprintf("https://github.com/404skill/%s_test_%s", repoName, projectID)
+	testDir := filepath.Join(projectsDir, ".tests", fmt.Sprintf("%s_%s", repoName, projectID))
 
 	// Create tests directory
 	if err := g.fileManager.CreateDirectory(filepath.Dir(testDir)); err != nil {

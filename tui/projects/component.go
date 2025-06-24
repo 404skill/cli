@@ -125,6 +125,7 @@ func (c *Component) handleDownloadedProject(project *api.Project) tea.Cmd {
 
 		// Format project name for directory
 		repoName := strings.ToLower(strings.ReplaceAll(project.Name, " ", "_"))
+		projectDirName := fmt.Sprintf("%s_%s", repoName, project.ID)
 		projectsDir := filepath.Join(homeDir, "404skill_projects")
 
 		// Try to find the project directory
@@ -135,7 +136,7 @@ func (c *Component) handleDownloadedProject(project *api.Project) tea.Cmd {
 
 		var projectDir string
 		for _, entry := range entries {
-			if entry.IsDir() && strings.HasPrefix(entry.Name(), repoName) {
+			if entry.IsDir() && entry.Name() == projectDirName {
 				projectDir = filepath.Join(projectsDir, entry.Name())
 				break
 			}

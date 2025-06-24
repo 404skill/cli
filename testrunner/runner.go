@@ -67,6 +67,7 @@ func (r *DefaultTestRunner) findProjectDirectory(project Project) (string, error
 	}
 
 	repo := strings.ToLower(strings.ReplaceAll(project.Name, " ", "_"))
+	projectDirName := fmt.Sprintf("%s_%s", repo, project.ID)
 	base := filepath.Join(home, "404skill_projects")
 
 	entries, err := os.ReadDir(base)
@@ -75,12 +76,12 @@ func (r *DefaultTestRunner) findProjectDirectory(project Project) (string, error
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), repo) {
+		if entry.IsDir() && entry.Name() == projectDirName {
 			return filepath.Join(base, entry.Name()), nil
 		}
 	}
 
-	return "", fmt.Errorf("project directory not found for '%s'", repo)
+	return "", fmt.Errorf("project directory not found for '%s'", projectDirName)
 }
 
 // runDockerCompose executes docker-compose up with build and abort-on-container-exit flags
@@ -89,7 +90,7 @@ func (r *DefaultTestRunner) runDockerCompose(projectDir string, logFile *os.File
 		progressCallback("Starting docker-compose...")
 	}
 
-	cmd := exec.Command("docker", "compose", "up", "--build", "--abort-on-container-exit")
+	cmd := exec.Command("docker", "compose", "-f", "docker-compose.test.yml", "up", "--build", "--abort-on-container-exit")
 	cmd.Dir = projectDir
 
 	if progressCallback != nil {
@@ -222,7 +223,7 @@ func (r *DefaultTestRunner) parseTestResults(project Project, projectDir string)
 	repo := strings.ToLower(strings.ReplaceAll(project.Name, " ", "_"))
 	base := filepath.Join(home, "404skill_projects")
 
-	reportsDir := filepath.Join(base, ".tests", fmt.Sprintf("%s_%s", repo, project.Language), "test-reports")
+	reportsDir := filepath.Join(base, ".tests", fmt.Sprintf("%s_%s", repo, project.ID), "test-reports")
 
 	entries, err := os.ReadDir(reportsDir)
 	if err != nil {

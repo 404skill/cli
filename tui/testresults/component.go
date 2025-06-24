@@ -67,6 +67,10 @@ type TestResultsComponent struct {
 	lastSelectedIndex int
 	expandedTests     map[string]bool
 	activeSection     FailureSection
+
+	// Scrolling
+	visibleStart int // index of first visible item
+	listHeight   int // number of lines available for the list
 }
 
 // Key bindings
@@ -168,14 +172,24 @@ func (c *TestResultsComponent) GetSelectedTest() *testreport.TestResult {
 func (c *TestResultsComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// Handle window size change
+		// Reserve 4 lines: header (2), help (1), padding (1)
+		c.listHeight = msg.Height - 4
+		if c.listHeight < 1 {
+			c.listHeight = 1
+		}
+		// Clamp visibleStart if needed
+		if c.visibleStart > len(c.items)-c.listHeight {
+			c.visibleStart = max(0, len(c.items)-c.listHeight)
+		}
 
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, keys.Up):
 			if c.selectedIndex > 0 {
 				c.selectedIndex--
-				// Reset scroll when navigating to different test
+				if c.selectedIndex < c.visibleStart {
+					c.visibleStart = c.selectedIndex
+				}
 				if c.selectedIndex != c.lastSelectedIndex {
 					c.lastSelectedIndex = c.selectedIndex
 				}
@@ -184,7 +198,9 @@ func (c *TestResultsComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Down):
 			if c.selectedIndex < len(c.items)-1 {
 				c.selectedIndex++
-				// Reset scroll when navigating to different test
+				if c.selectedIndex >= c.visibleStart+c.listHeight {
+					c.visibleStart = c.selectedIndex - c.listHeight + 1
+				}
 				if c.selectedIndex != c.lastSelectedIndex {
 					c.lastSelectedIndex = c.selectedIndex
 				}
@@ -302,8 +318,14 @@ func (c *TestResultsComponent) buildHeaderView() string {
 
 // buildTestListView creates the main test list view
 func (c *TestResultsComponent) buildTestListView() string {
+	if c.listHeight <= 0 {
+		c.listHeight = 10 // fallback default
+	}
+	start := c.visibleStart
+	end := min(start+c.listHeight, len(c.items))
 	var b strings.Builder
-	for _, item := range c.items {
+	for i := start; i < end; i++ {
+		item := c.items[i]
 		// Select style
 		line := c.formatTestLine(item)
 		if item.Selected {
@@ -368,4 +390,19 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Expand, k.Collapse, k.Toggle},
 		{k.NextSection, k.Back, k.Quit},
 	}
+}
+
+// Utility functions
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

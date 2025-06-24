@@ -187,29 +187,33 @@ func TestDefaultTestRunner_formatProjectName(t *testing.T) {
 	tests := []struct {
 		name         string
 		projectName  string
+		projectID    string
 		expectedRepo string
 	}{
 		{
 			name:         "simple name",
 			projectName:  "TestProject",
-			expectedRepo: "testproject",
+			projectID:    "proj1",
+			expectedRepo: "testproject_proj1",
 		},
 		{
 			name:         "name with spaces",
 			projectName:  "Test Project Name",
-			expectedRepo: "test_project_name",
+			projectID:    "proj2",
+			expectedRepo: "test_project_name_proj2",
 		},
 		{
 			name:         "name with special characters",
 			projectName:  "Test-Project_Name!",
-			expectedRepo: "test-project_name!",
+			projectID:    "proj3",
+			expectedRepo: "test-project_name!_proj3",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test the project name formatting logic
-			result := formatProjectName(tt.projectName)
+			result := formatProjectName(tt.projectName, tt.projectID)
 			if result != tt.expectedRepo {
 				t.Errorf("Expected %s, got %s", tt.expectedRepo, result)
 			}
@@ -250,6 +254,6 @@ func TestDefaultTestRunner_RunTests_InvalidProject(t *testing.T) {
 }
 
 // Helper function that mimics the formatting logic in the service
-func formatProjectName(name string) string {
-	return strings.ToLower(strings.ReplaceAll(name, " ", "_"))
+func formatProjectName(name string, id string) string {
+	return strings.ToLower(strings.ReplaceAll(name, " ", "_")) + "_" + id
 }

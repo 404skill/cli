@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// XMLTestSuites represents the XML structure of multiple test suites
+type XMLTestSuites struct {
+	XMLName    xml.Name       `xml:"testsuites"`
+	TestSuites []XMLTestSuite `xml:"testsuite"`
+}
+
 // XMLTestSuite represents the XML structure of a test suite
 type XMLTestSuite struct {
 	XMLName   xml.Name      `xml:"testsuite"`
@@ -48,11 +54,30 @@ func NewParser() *Parser {
 
 // Parse reads and parses a test report from the given reader
 func (p *Parser) Parse(reader io.Reader) (*ParseResult, error) {
+	// Read all content first so we can try multiple parsing approaches
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read XML content: %w", err)
+	}
+
+	// First, try to parse as testsuites (multiple test suites)
+	var xmlSuites XMLTestSuites
+	if err := xml.NewDecoder(bytes.NewReader(content)).Decode(&xmlSuites); err == nil && len(xmlSuites.TestSuites) > 0 {
+		// Successfully parsed as testsuites, use the first test suite
+		return p.parseTestSuite(&xmlSuites.TestSuites[0])
+	}
+
+	// If that fails, try to parse as a single testsuite
 	var xmlSuite XMLTestSuite
-	if err := xml.NewDecoder(reader).Decode(&xmlSuite); err != nil {
+	if err := xml.NewDecoder(bytes.NewReader(content)).Decode(&xmlSuite); err != nil {
 		return nil, fmt.Errorf("failed to decode XML: %w", err)
 	}
 
+	return p.parseTestSuite(&xmlSuite)
+}
+
+// parseTestSuite converts an XMLTestSuite to our domain model
+func (p *Parser) parseTestSuite(xmlSuite *XMLTestSuite) (*ParseResult, error) {
 	// Parse timestamp
 	timestamp, err := time.Parse("2006-01-02T15:04:05", xmlSuite.Timestamp)
 	if err != nil {
