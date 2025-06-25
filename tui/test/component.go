@@ -9,6 +9,7 @@ import (
 	"404skill-cli/api"
 	"404skill-cli/testreport"
 	"404skill-cli/testrunner"
+	"404skill-cli/tracing"
 	"404skill-cli/tui/testresults"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -190,6 +191,7 @@ func (c *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	case TestCompleteMsg:
 		c.testing = false
 		if msg.Error != "" {
+			_ = tracing.TrackError(fmt.Errorf("test completed with error: %s", msg.Error), "test_component")
 			c.errorMsg = msg.Error
 			return c, nil
 		}
@@ -198,8 +200,8 @@ func (c *TestComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 		c.showingTestResults = true
 		c.buildTestResultsView(msg.Result)
 
-		// Update API
-		return c, c.updateAPICmd(msg.Result)
+		// Update API - use project from message instead of component state
+		return c, c.updateAPICmd(msg.Result, msg.Project)
 
 	case TestProgressMsg:
 		if msg.Line != "" {
@@ -322,19 +324,33 @@ func (c *TestComponent) runTestsCmd(project testrunner.Project) tea.Cmd {
 }
 
 // updateAPICmd creates a command to update the API with test results
-func (c *TestComponent) updateAPICmd(result *testreport.ParseResult) tea.Cmd {
+func (c *TestComponent) updateAPICmd(result *testreport.ParseResult, project *testrunner.Project) tea.Cmd {
 	return func() tea.Msg {
-		if c.currentProject == nil {
+		tracker := tracing.TimedOperation("api_bulk_update_profile_tests")
+
+		if project == nil {
+			_ = tracker.CompleteWithError(fmt.Errorf("no current project"))
 			return apiUpdateCompleteMsg{err: fmt.Errorf("no current project")}
 		}
+
+		tracker.AddMetadata("project_id", project.ID)
+		tracker.AddMetadata("passed_count", fmt.Sprintf("%d", len(result.PassedTests)))
+		tracker.AddMetadata("failed_count", fmt.Sprintf("%d", len(result.FailedTests)))
 
 		ctx := context.Background()
 		err := c.apiClient.BulkUpdateProfileTests(
 			ctx,
 			result.FailedTests,
 			result.PassedTests,
-			c.currentProject.ID,
+			project.ID,
 		)
+
+		if err != nil {
+			_ = tracker.CompleteWithError(err)
+		} else {
+			_ = tracker.Complete()
+		}
+
 		return apiUpdateCompleteMsg{err: err}
 	}
 }

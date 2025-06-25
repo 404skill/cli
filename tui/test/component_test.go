@@ -144,8 +144,11 @@ func TestTestComponent_Update_KeyHandling(t *testing.T) {
 			initialState: func(c *TestComponent) {
 				c.showingTestResults = true
 				c.testResultsSummary = "Test Results"
+				c.buildTestResultsView(&testreport.ParseResult{
+					Suite: testreport.TestSuite{Name: "Test Suite"},
+				})
 			},
-			keyMsg:         "space",
+			keyMsg:         "esc",
 			expectedAction: "dismiss_results",
 		},
 		{
@@ -574,5 +577,345 @@ func TestTestComponent_Integration(t *testing.T) {
 
 	if !strings.Contains(component.testResultsSummary, "[API update successful!]") {
 		t.Error("Expected success message in summary")
+	}
+}
+
+func TestTestComponent_APICallAfterTestCompletion(t *testing.T) {
+	// This test specifically verifies that the API is called after test completion
+	var apiCallMade bool
+	var capturedFailed []string
+	var capturedPassed []string
+	var capturedProjectID string
+
+	apiClient := &MockAPIClient{
+		bulkUpdateProfileTestsFunc: func(ctx context.Context, failed []string, passed []string, projectID string) error {
+			apiCallMade = true
+			capturedFailed = failed
+			capturedPassed = passed
+			capturedProjectID = projectID
+			return nil
+		},
+	}
+
+	component := New(&MockTestRunner{}, &MockConfigManager{}, apiClient)
+
+	// Set current project (this is critical for the API call to work)
+	testProject := &testrunner.Project{
+		ID:   "test-project-123",
+		Name: "Test Project",
+	}
+	component.currentProject = testProject
+
+	// Create test completion message with specific results
+	testResult := &testreport.ParseResult{
+		Suite: testreport.TestSuite{
+			Name:  "API Test Suite",
+			Tests: 3,
+			Time:  1.5,
+		},
+		PassedTests: []string{"test_passed_1", "test_passed_2"},
+		FailedTests: []string{"test_failed_1"},
+	}
+	testResult.Suite.Results = []testreport.TestResult{
+		{Name: "test_passed_1", Passed: true, Time: 0.5},
+		{Name: "test_passed_2", Passed: true, Time: 0.3},
+		{Name: "test_failed_1", Passed: false, Time: 0.7},
+	}
+
+	completeMsg := TestCompleteMsg{
+		Project: testProject,
+		Result:  testResult,
+	}
+
+	// Update component with test completion message
+	updatedComponent, cmd := component.Update(completeMsg)
+	component = updatedComponent.(*TestComponent)
+
+	// Verify that a command was returned (this should be the API update command)
+	if cmd == nil {
+		t.Fatal("Expected API update command to be returned after test completion")
+	}
+
+	// Execute the API command to trigger the actual API call
+	apiMsg := cmd()
+	if apiMsg == nil {
+		t.Fatal("Expected API command to return a message")
+	}
+
+	// Update component with API result
+	updatedComponent, _ = component.Update(apiMsg)
+	component = updatedComponent.(*TestComponent)
+
+	// Verify the API was called with correct parameters
+	if !apiCallMade {
+		t.Error("Expected BulkUpdateProfileTests to be called after test completion")
+	}
+
+	if capturedProjectID != "test-project-123" {
+		t.Errorf("Expected project ID 'test-project-123', got '%s'", capturedProjectID)
+	}
+
+	expectedFailed := []string{"test_failed_1"}
+	if len(capturedFailed) != len(expectedFailed) || capturedFailed[0] != expectedFailed[0] {
+		t.Errorf("Expected failed tests %v, got %v", expectedFailed, capturedFailed)
+	}
+
+	expectedPassed := []string{"test_passed_1", "test_passed_2"}
+	if len(capturedPassed) != len(expectedPassed) {
+		t.Errorf("Expected passed tests %v, got %v", expectedPassed, capturedPassed)
+	}
+	for i, expected := range expectedPassed {
+		if i >= len(capturedPassed) || capturedPassed[i] != expected {
+			t.Errorf("Expected passed test %d to be '%s', got '%s'", i, expected, capturedPassed[i])
+		}
+	}
+
+	// Verify component state after API call
+	if !component.showingTestResults {
+		t.Error("Expected showingTestResults to be true after test completion")
+	}
+
+	if component.testing {
+		t.Error("Expected testing to be false after test completion")
+	}
+}
+
+func TestTestComponent_APICallFailsWhenNoCurrentProject(t *testing.T) {
+	// This test verifies what happens when currentProject is nil during API update
+	var apiCallMade bool
+
+	apiClient := &MockAPIClient{
+		bulkUpdateProfileTestsFunc: func(ctx context.Context, failed []string, passed []string, projectID string) error {
+			apiCallMade = true
+			return nil
+		},
+	}
+
+	component := New(&MockTestRunner{}, &MockConfigManager{}, apiClient)
+
+	// Deliberately NOT setting currentProject (it should be nil)
+	if component.currentProject != nil {
+		t.Fatal("Expected currentProject to be nil initially")
+	}
+
+	// Create test completion message
+	testResult := &testreport.ParseResult{
+		Suite: testreport.TestSuite{
+			Name:  "API Test Suite",
+			Tests: 1,
+			Time:  0.5,
+		},
+		PassedTests: []string{"test_passed_1"},
+		FailedTests: []string{},
+	}
+	testResult.Suite.Results = []testreport.TestResult{
+		{Name: "test_passed_1", Passed: true, Time: 0.5},
+	}
+
+	completeMsg := TestCompleteMsg{
+		Project: &testrunner.Project{ID: "some-project", Name: "Some Project"},
+		Result:  testResult,
+	}
+
+	// Update component with test completion message
+	updatedComponent, cmd := component.Update(completeMsg)
+	component = updatedComponent.(*TestComponent)
+
+	// Verify that a command was returned
+	if cmd == nil {
+		t.Fatal("Expected API update command to be returned after test completion")
+	}
+
+	// Execute the API command
+	apiMsg := cmd()
+	if apiMsg == nil {
+		t.Fatal("Expected API command to return a message")
+	}
+
+	// Update component with API result
+	updatedComponent, _ = component.Update(apiMsg)
+	component = updatedComponent.(*TestComponent)
+
+	// Verify the API was NOT called because currentProject is nil
+	if apiCallMade {
+		t.Error("Expected BulkUpdateProfileTests NOT to be called when currentProject is nil")
+	}
+
+	// Verify error message is shown
+	if !strings.Contains(component.testResultsSummary, "[API update failed: no current project]") {
+		t.Errorf("Expected error message about no current project, got: %s", component.testResultsSummary)
+	}
+}
+
+func TestTestComponent_CompleteFlowWithAPICall(t *testing.T) {
+	// This test simulates the complete flow: start test -> complete test -> API call -> start another test
+	var apiCallCount int
+	var lastAPICall struct {
+		failed    []string
+		passed    []string
+		projectID string
+	}
+
+	apiClient := &MockAPIClient{
+		bulkUpdateProfileTestsFunc: func(ctx context.Context, failed []string, passed []string, projectID string) error {
+			apiCallCount++
+			lastAPICall.failed = failed
+			lastAPICall.passed = passed
+			lastAPICall.projectID = projectID
+			return nil
+		},
+	}
+
+	configManager := &MockConfigManager{
+		isProjectDownloadedFunc: func(projectID string) bool {
+			return true
+		},
+	}
+
+	testRunner := &MockTestRunner{
+		runTestsFunc: func(project testrunner.Project, progressCallback func(string)) (*testreport.ParseResult, error) {
+			return &testreport.ParseResult{
+				Suite: testreport.TestSuite{
+					Name:  "Flow Test Suite",
+					Tests: 2,
+					Time:  1.0,
+				},
+				PassedTests: []string{"test_passed"},
+				FailedTests: []string{"test_failed"},
+			}, nil
+		},
+	}
+
+	component := New(testRunner, configManager, apiClient)
+
+	// Set up projects
+	projects := []api.Project{
+		{
+			ID:       "project-1",
+			Name:     "Project 1",
+			Language: "go",
+		},
+		{
+			ID:       "project-2",
+			Name:     "Project 2",
+			Language: "python",
+		},
+	}
+	component.SetProjects(projects)
+
+	// Step 1: Start first test
+	enterMsg := tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune("enter"),
+	}
+
+	updatedComponent, _ := component.Update(enterMsg)
+	component = updatedComponent.(*TestComponent)
+
+	if !component.testing {
+		t.Error("Expected testing to be true after starting test")
+	}
+
+	if component.currentProject == nil {
+		t.Fatal("Expected currentProject to be set after starting test")
+	}
+
+	if component.currentProject.ID != "project-1" {
+		t.Errorf("Expected currentProject ID to be 'project-1', got '%s'", component.currentProject.ID)
+	}
+
+	// Step 2: Simulate test completion
+	completeMsg := TestCompleteMsg{
+		Project: component.currentProject,
+		Result: &testreport.ParseResult{
+			Suite: testreport.TestSuite{
+				Name:  "Flow Test Suite",
+				Tests: 2,
+				Time:  1.0,
+			},
+			PassedTests: []string{"test_passed"},
+			FailedTests: []string{"test_failed"},
+		},
+	}
+
+	updatedComponent, apiCmd := component.Update(completeMsg)
+	component = updatedComponent.(*TestComponent)
+
+	if component.testing {
+		t.Error("Expected testing to be false after test completion")
+	}
+
+	if !component.showingTestResults {
+		t.Error("Expected showingTestResults to be true after test completion")
+	}
+
+	// Step 3: Execute API command
+	if apiCmd == nil {
+		t.Fatal("Expected API command to be returned after test completion")
+	}
+
+	apiMsg := apiCmd()
+	updatedComponent, _ = component.Update(apiMsg)
+	component = updatedComponent.(*TestComponent)
+
+	// Verify API was called
+	if apiCallCount != 1 {
+		t.Errorf("Expected API to be called once, got %d calls", apiCallCount)
+	}
+
+	if lastAPICall.projectID != "project-1" {
+		t.Errorf("Expected API call with project ID 'project-1', got '%s'", lastAPICall.projectID)
+	}
+
+	if len(lastAPICall.passed) != 1 || lastAPICall.passed[0] != "test_passed" {
+		t.Errorf("Expected passed tests ['test_passed'], got %v", lastAPICall.passed)
+	}
+
+	if len(lastAPICall.failed) != 1 || lastAPICall.failed[0] != "test_failed" {
+		t.Errorf("Expected failed tests ['test_failed'], got %v", lastAPICall.failed)
+	}
+
+	// Step 4: Start second test (this should not affect the first API call)
+	// First dismiss test results
+	escMsg := tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune("esc"),
+	}
+
+	updatedComponent, _ = component.Update(escMsg)
+	component = updatedComponent.(*TestComponent)
+
+	if component.showingTestResults {
+		t.Error("Expected showingTestResults to be false after dismissing results")
+	}
+
+	// Navigate to second project
+	downMsg := tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune("down"),
+	}
+
+	updatedComponent, _ = component.Update(downMsg)
+	component = updatedComponent.(*TestComponent)
+
+	// Start second test
+	updatedComponent, _ = component.Update(enterMsg)
+	component = updatedComponent.(*TestComponent)
+
+	if !component.testing {
+		t.Error("Expected testing to be true after starting second test")
+	}
+
+	if component.currentProject == nil {
+		t.Fatal("Expected currentProject to be set for second test")
+	}
+
+	if component.currentProject.ID != "project-2" {
+		t.Errorf("Expected currentProject ID to be 'project-2', got '%s'", component.currentProject.ID)
+	}
+
+	// Verify API call count didn't change (only one call should have been made)
+	if apiCallCount != 1 {
+		t.Errorf("Expected API call count to remain 1, got %d", apiCallCount)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"404skill-cli/config"
+	"404skill-cli/tracing"
 )
 
 // TokenProvider defines the interface for token management
@@ -134,8 +135,14 @@ type BulkUpdateRequest struct {
 }
 
 func (c *Client) BulkUpdateProfileTests(ctx context.Context, failed, passed []string, projectID string) error {
+	tracker := tracing.TimedOperation("http_bulk_update_profile_tests")
+	tracker.AddMetadata("project_id", projectID)
+	tracker.AddMetadata("failed_count", fmt.Sprintf("%d", len(failed)))
+	tracker.AddMetadata("passed_count", fmt.Sprintf("%d", len(passed)))
+
 	token, err := c.tokenProvider.GetToken()
 	if err != nil {
+		_ = tracker.CompleteWithError(fmt.Errorf("failed to get token: %w", err))
 		return fmt.Errorf("failed to get token: %w", err)
 	}
 
@@ -146,22 +153,38 @@ func (c *Client) BulkUpdateProfileTests(ctx context.Context, failed, passed []st
 	}
 	data, err := json.Marshal(reqBody)
 	if err != nil {
+		_ = tracker.CompleteWithError(fmt.Errorf("failed to marshal request: %w", err))
 		return err
 	}
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/profile-tests/bulk-update", c.baseURL), bytes.NewBuffer(data))
+
+	url := fmt.Sprintf("%s/profile-tests/bulk-update", c.baseURL)
+	tracker.AddMetadata("url", url)
+	tracker.AddMetadata("request_size", fmt.Sprintf("%d", len(data)))
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
 	if err != nil {
+		_ = tracker.CompleteWithError(fmt.Errorf("failed to create request: %w", err))
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		_ = tracker.CompleteWithError(fmt.Errorf("HTTP request failed: %w", err))
 		return err
 	}
 	defer resp.Body.Close()
+
+	tracker.AddMetadata("response_status", resp.Status)
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error: %s, %s", resp.Status, string(bodyBytes))
+		apiErr := fmt.Errorf("API error: %s, %s", resp.Status, string(bodyBytes))
+		_ = tracker.CompleteWithError(apiErr)
+		return apiErr
 	}
+
+	_ = tracker.Complete()
 	return nil
 }
