@@ -6,6 +6,7 @@ import (
 	"404skill-cli/api"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	btable "github.com/evertras/bubble-table/table"
 )
 
@@ -24,13 +25,16 @@ type Component struct {
 
 // New creates a new table component with default styling
 func New(statusProvider ProjectStatusProvider) *Component {
-	// Define consistent column structure
+	// Create center alignment style for all columns
+	centerStyle := lipgloss.NewStyle().Align(lipgloss.Center)
+
+	// Define consistent column structure with center alignment
 	columns := []btable.Column{
-		btable.NewColumn("name", "Name", 32),
-		btable.NewColumn("lang", "Language", 15),
-		btable.NewColumn("diff", "Difficulty", 15),
-		btable.NewColumn("dur", "Duration", 15),
-		btable.NewColumn("status", "Status", 15),
+		btable.NewColumn("name", "Name", 32).WithStyle(centerStyle),
+		btable.NewColumn("lang", "Language", 15).WithStyle(centerStyle),
+		btable.NewColumn("diff", "Difficulty", 15).WithStyle(centerStyle),
+		btable.NewColumn("dur", "Duration", 15).WithStyle(centerStyle),
+		btable.NewColumn("status", "Status", 15).WithStyle(centerStyle),
 	}
 
 	table := btable.New(columns)

@@ -69,17 +69,27 @@ func NewWithMode(variants []api.Project, downloader downloader.Downloader, testR
 		tuiTracer = tracing.NewTUIIntegration(manager)
 	}
 
+	// Create center alignment style for all columns
+	centerStyle := lipgloss.NewStyle().Align(lipgloss.Center)
+
 	columns := []btable.Column{
-		btable.NewColumn("desc", "Description", 32),
-		btable.NewColumn("tech", "Technologies", 24),
-		btable.NewColumn("diff", "Difficulty", 12),
+		btable.NewColumn("desc", "Description", 32).WithStyle(centerStyle),
+		btable.NewColumn("tech", "Technologies", 24).WithStyle(centerStyle),
+		btable.NewColumn("diff", "Difficulty", 12).WithStyle(centerStyle),
+		btable.NewColumn("downloaded", "Downloaded", 12).WithStyle(centerStyle),
 	}
 	var rows []btable.Row
 	for _, v := range variants {
+		downloadedStatus := "✗"
+		if configManager != nil && configManager.IsProjectDownloaded(v.ID) {
+			downloadedStatus = "✓"
+		}
+
 		rows = append(rows, btable.NewRow(map[string]interface{}{
-			"desc": v.Description,
-			"tech": v.Technologies,
-			"diff": v.Difficulty,
+			"desc":       v.Description,
+			"tech":       v.Technologies,
+			"diff":       v.Difficulty,
+			"downloaded": downloadedStatus,
 		}))
 	}
 	table := btable.New(columns).WithRows(rows).Focused(true)
@@ -143,6 +153,7 @@ func (c *Component) Update(msg tea.Msg) (*Component, tea.Cmd) {
 			}
 			c.downloading = false
 			c.selectedVariant = msg.Variant
+			c.refreshTable()
 			return c, nil
 		case DownloadErrorMsg:
 			if c.tracer != nil {
@@ -670,4 +681,31 @@ func (c *Component) IsTesting() bool {
 
 func (c *Component) IsDownloading() bool {
 	return c.downloading
+}
+
+func (c *Component) refreshTable() {
+	// Create center alignment style for all columns
+	centerStyle := lipgloss.NewStyle().Align(lipgloss.Center)
+
+	columns := []btable.Column{
+		btable.NewColumn("desc", "Description", 32).WithStyle(centerStyle),
+		btable.NewColumn("tech", "Technologies", 24).WithStyle(centerStyle),
+		btable.NewColumn("diff", "Difficulty", 12).WithStyle(centerStyle),
+		btable.NewColumn("downloaded", "Downloaded", 12).WithStyle(centerStyle),
+	}
+	var rows []btable.Row
+	for _, v := range c.variants {
+		downloadedStatus := "✗"
+		if c.configManager != nil && c.configManager.IsProjectDownloaded(v.ID) {
+			downloadedStatus = "✓"
+		}
+
+		rows = append(rows, btable.NewRow(map[string]interface{}{
+			"desc":       v.Description,
+			"tech":       v.Technologies,
+			"diff":       v.Difficulty,
+			"downloaded": downloadedStatus,
+		}))
+	}
+	c.table = btable.New(columns).WithRows(rows).Focused(true)
 }
