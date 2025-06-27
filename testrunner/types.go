@@ -1,6 +1,8 @@
 package testrunner
 
-import "404skill-cli/testreport"
+import (
+	"404skill-cli/testreport"
+)
 
 // TestRunner interface for running tests on projects
 type TestRunner interface {

@@ -310,12 +310,7 @@ func (c *Component) handleTestAction(variant *api.Project) (*Component, tea.Cmd)
 		return c, nil
 	}
 
-	// Track test initiation
-	if c.tracer != nil {
-		_ = c.tracer.TrackProjectOperation("test_start", variant.Name)
-	}
-
-	// Start testing with spinner
+	// Only here, Docker is running, so start the test
 	c.testing = true
 	c.verboseMode = false // Start in simple mode
 	c.currentOperation = "Initializing tests..."

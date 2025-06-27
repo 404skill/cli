@@ -26,6 +26,11 @@ func NewDefaultTestRunner() *DefaultTestRunner {
 
 // RunTests executes tests for a project using docker-compose
 func (r *DefaultTestRunner) RunTests(project Project, progressCallback func(string)) (*testreport.ParseResult, error) {
+	// Check Docker Desktop status before proceeding
+	if err := r.checkDockerStatus(progressCallback); err != nil {
+		return nil, fmt.Errorf("Dependency check failed: %w", err)
+	}
+
 	projectDir, err := r.findProjectDirectory(project)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find project directory: %w", err)
@@ -57,6 +62,24 @@ func (r *DefaultTestRunner) RunTests(project Project, progressCallback func(stri
 	}
 
 	return result, nil
+}
+
+// checkDockerStatus checks if Docker Desktop is running (no user interaction)
+func (r *DefaultTestRunner) checkDockerStatus(progressCallback func(string)) error {
+	if progressCallback != nil {
+		progressCallback("Checking Docker Desktop status...")
+	}
+
+	// Check if Docker is running by running 'docker info'
+	cmd := exec.Command("docker", "info")
+	if err := cmd.Run(); err == nil {
+		if progressCallback != nil {
+			progressCallback("Docker Desktop is running")
+		}
+		return nil
+	}
+
+	return fmt.Errorf("Docker Desktop is not running")
 }
 
 // findProjectDirectory locates the project directory in the user's home directory
