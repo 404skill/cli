@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -143,37 +143,33 @@ func (p *Parser) ParseFile(filename string) (*ParseResult, error) {
 	return p.Parse(bytes.NewReader(file))
 }
 
-// extractTaskNumber extracts task number from classname like "test_api.TestTask1HealthCheck"
+// extractTaskNumber extracts task number from various classname formats
+// Supports formats like:
+// - "test_api.TestTask1HealthCheck"
+// - "Task 1: Health Check Endpoint"
+// - "Task1Something"
+// - "task_2_description"
 func (p *Parser) extractTaskNumber(className string) int {
-	if !strings.Contains(className, "TestTask") {
-		return -1
+	// Define regex patterns for different task number formats
+	patterns := []string{
+		`(?i)testtask(\d+)`, // TestTask1, testtask2, etc.
+		`(?i)task\s*(\d+)`,  // Task 1, task 2, Task1, etc.
+		`(?i)task[_-](\d+)`, // task_1, task-2, etc.
+		`(?i)(\d+).*task`,   // 1_task, 2-task, etc.
 	}
 
-	// Find "TestTask" and extract the number after it
-	taskIndex := strings.Index(className, "TestTask")
-	if taskIndex == -1 {
-		return -1
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(className)
+		if len(matches) > 1 {
+			taskNum, err := strconv.Atoi(matches[1])
+			if err == nil {
+				return taskNum
+			}
+		}
 	}
 
-	start := taskIndex + 8 // Move past "TestTask"
-	end := start
-
-	// Find the end of the number
-	for end < len(className) && className[end] >= '0' && className[end] <= '9' {
-		end++
-	}
-
-	if end == start {
-		return -1 // No digits found
-	}
-
-	taskNumStr := className[start:end]
-	taskNum, err := strconv.Atoi(taskNumStr)
-	if err != nil {
-		return -1
-	}
-
-	return taskNum
+	return -1 // No task number found
 }
 
 // groupTestsByTask groups tests by their task number

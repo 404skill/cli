@@ -108,21 +108,63 @@ func TestParser_ExtractTaskNumber(t *testing.T) {
 		expected  int
 		name      string
 	}{
-		{"test_api.TestTask1HealthCheck", 1, "Task 1"},
-		{"test_api.TestTask2JournalEntry", 2, "Task 2"},
-		{"test_api.TestTask10Advanced", 10, "Task 10"},
-		{"test_api.TestTask123Multi", 123, "Task 123"},
-		{"TestTask5Simple", 5, "Simple format"},
-		{"SomeOtherClass", -1, "No task"},
-		{"TestTaskNoNumber", -1, "No number after TestTask"},
+		// Original TestTask format
+		{"test_api.TestTask1HealthCheck", 1, "Original TestTask format"},
+		{"test_api.TestTask2JournalEntry", 2, "TestTask with number 2"},
+		{"test_api.TestTask10Advanced", 10, "TestTask with two digits"},
+		{"test_api.TestTask123Multi", 123, "TestTask with three digits"},
+		{"test_api.TestTask1000Large", 1000, "TestTask with four digits"},
+		{"TestTask5Simple", 5, "Simple TestTask format"},
+
+		// Jest format - "Task N: Description"
+		{"Task 1: Health Check Endpoint", 1, "Jest format Task 1"},
+		{"Task 2: Database Connection", 2, "Jest format Task 2"},
+		{"Task 10: Advanced Features", 10, "Jest format two digits"},
+		{"Task 123: Complex Test", 123, "Jest format three digits"},
+		{"Task 999: Large Number", 999, "Jest format large number"},
+
+		// Task without space
+		{"Task1Something", 1, "Task without space"},
+		{"Task25NoSpace", 25, "Task without space - two digits"},
+		{"Task100NoSpace", 100, "Task without space - three digits"},
+
+		// Underscore/hyphen separated
+		{"task_1_description", 1, "Underscore separated lowercase"},
+		{"task_10_advanced", 10, "Underscore separated two digits"},
+		{"task_123_complex", 123, "Underscore separated three digits"},
+		{"Task_5_Mixed_Case", 5, "Underscore separated mixed case"},
+		{"task-2-hyphen", 2, "Hyphen separated"},
+		{"task-99-hyphen", 99, "Hyphen separated two digits"},
+
+		// Number first format
+		{"1_task_health", 1, "Number first with underscore"},
+		{"10_task_database", 10, "Number first two digits"},
+		{"123_task_complex", 123, "Number first three digits"},
+		{"2-task-hyphen", 2, "Number first with hyphen"},
+
+		// Case variations
+		{"TESTTASK7UPPER", 7, "All uppercase TestTask"},
+		{"testtask8lower", 8, "All lowercase testtask"},
+		{"TestTask9Mixed", 9, "Mixed case TestTask"},
+		{"TASK 15: UPPERCASE", 15, "Uppercase Task format"},
+		{"task 20: lowercase", 20, "Lowercase task format"},
+
+		// Edge cases and failures
+		{"SomeOtherClass", -1, "No task pattern"},
+		{"TestTaskNoNumber", -1, "TestTask without number"},
+		{"Task: No Number", -1, "Task without number"},
+		{"TaskABC123", -1, "Task with letters before number"},
 		{"", -1, "Empty string"},
+		{"Task", -1, "Just Task word"},
+		{"123", -1, "Just number"},
+		{"NotATaskPattern", -1, "No matching pattern"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := parser.extractTaskNumber(tt.className)
 			if result != tt.expected {
-				t.Errorf("extractTaskNumber(%s) = %d, want %d", tt.className, result, tt.expected)
+				t.Errorf("extractTaskNumber(%q) = %d, want %d", tt.className, result, tt.expected)
 			}
 		})
 	}
