@@ -200,9 +200,24 @@ func (g *GitDownloader) cloneMainProject(ctx context.Context, repoURL, targetDir
 	return nil
 }
 
+// checkRepoExists checks if a remote repository exists and is accessible
+func (g *GitDownloader) checkRepoExists(ctx context.Context, repoURL string) bool {
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--exit-code", repoURL)
+	err := cmd.Run()
+	return err == nil
+}
+
 // cloneTestProject clones the test repository
 func (g *GitDownloader) cloneTestProject(ctx context.Context, repoName, projectID, projectsDir string, progressCallback ProgressCallback) error {
-	testRepoURL := fmt.Sprintf("https://github.com/404skill/%s_test_%s", repoName, projectID)
+	// Try first priority URL format (without project ID)
+	testRepoURL := fmt.Sprintf("https://github.com/404skill/%s_test", repoName)
+
+	// Check if the first priority repo exists
+	if !g.checkRepoExists(ctx, testRepoURL) {
+		// Fallback to second priority URL format (with project ID)
+		testRepoURL = fmt.Sprintf("https://github.com/404skill/%s_test_%s", repoName, projectID)
+	}
+
 	testDir := filepath.Join(projectsDir, ".tests", fmt.Sprintf("%s_%s", repoName, projectID))
 
 	// Create tests directory
